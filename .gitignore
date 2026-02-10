@@ -213,3 +213,11 @@ build/
 # executables
 *.exe
 *.pkg
+
+# PyCharm
+.idea/
+*.iml
+
+# Python virtual env
+.venv/
+.venv*/
