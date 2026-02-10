@@ -406,6 +406,7 @@ class HyperSpectralViewer(QMainWindow):
             self.slider_min.blockSignals(False)
         self.stretch_min = float(v_min)
         self.stretch_max = float(v_max)
+
         self.stretch_label.setText(f"对比度拉伸：{self.stretch_min:.0f}% - {self.stretch_max:.0f}%")
         self.update_image()
 
