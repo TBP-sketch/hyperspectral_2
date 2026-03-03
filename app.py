@@ -23,6 +23,22 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+# ENVI 标准格式（.hdr + 数据文件）读取支持
+# - 该模块位于项目根目录 `envi_reader.py`
+# - 若用户仅使用 .npy/.raw，也不影响启动；但选择 .hdr 时需要能正确导入
+try:
+    from envi_reader import EnviError, read_envi
+except Exception:  # 防御：避免导入失败导致整个 GUI 无法启动
+    EnviError = Exception  # type: ignore
+    read_envi = None  # type: ignore
+
+# HDF5 高光谱数据读取支持（.h5 / .hdf5）
+try:
+    from hdf5_reader import HDF5Error, read_hdf5_hypercube
+except Exception:  # 同样防御，避免导入失败直接中断 GUI
+    HDF5Error = Exception  # type: ignore
+    read_hdf5_hypercube = None  # type: ignore
+
 
 matplotlib.use("Qt5Agg")
 
@@ -129,6 +145,8 @@ class HyperSpectralViewer(QMainWindow):
         self.resize(1000, 600)
 
         self.data: Optional[np.ndarray] = None  # (H, W, B)
+        self.envi_header: Optional[dict] = None  # 若从 .hdr 读取，则保存完整头字段
+        self.hdf5_info: Optional[dict] = None  # 若从 HDF5 读取，则保存结构与元数据
         self.current_band: int = 0
         self.stretch_min: float = 2.0
         self.stretch_max: float = 98.0 
@@ -217,12 +235,14 @@ class HyperSpectralViewer(QMainWindow):
         支持格式：
         - .npy: 直接加载为 (H, W, B)
         - .raw: 原始二进制文件，需要用户输入参数（高度、宽度、波段数、数据类型等）
+        - .hdr: ENVI 标准格式头文件（自动在同目录下寻找同主名数据文件）
+        - .h5 / .hdf5: HDF5 高光谱数据文件（自动搜索反射率数据集与元数据）
         """
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "选择高光谱数据文件",
             "",
-            "NumPy 数组 (*.npy);;RAW 文件 (*.raw);;所有文件 (*.*)",
+            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;HDF5 文件 (*.h5 *.hdf5);;RAW 文件 (*.raw);;所有文件 (*.*)",
         )
         if not file_path:
             return
@@ -232,10 +252,51 @@ class HyperSpectralViewer(QMainWindow):
                 arr = np.load(file_path)
                 if arr.ndim == 3:
                     self.data = arr.astype(np.float32)
+                    self.envi_header = None
+                    self.hdf5_info = None
                 elif arr.ndim == 2:
                     raise ValueError("期望数据形状为 (H, W, B)，当前为 2 维。")
                 else:
                     raise ValueError(f"不支持的数据维度：{arr.shape}")
+
+            elif file_path.lower().endswith(".hdr"):
+                # ENVI 标准格式：.hdr + 数据文件（.raw/.img/.dat/无后缀）
+                if read_envi is None:
+                    raise ImportError(
+                        "ENVI 读取模块不可用（envi_reader.py 导入失败）。请检查文件是否存在及依赖是否安装。"
+                    )
+
+                arr, header = read_envi(file_path)
+                self.envi_header = header
+                self.hdf5_info = None
+
+                # 内部显示逻辑统一使用 (H, W, B)；ENVI 读取得到的形状取决于 interleave：
+                # - bsq: (bands, lines, samples) -> (lines, samples, bands)
+                # - bil: (lines, bands, samples) -> (lines, samples, bands)
+                # - bip: (lines, samples, bands) -> (lines, samples, bands)
+                interleave = str(header.get("interleave", "")).strip().lower()
+                if interleave == "bsq":
+                    cube = np.transpose(arr, (1, 2, 0))
+                elif interleave == "bil":
+                    cube = np.transpose(arr, (0, 2, 1))
+                elif interleave == "bip":
+                    cube = arr
+                else:
+                    raise ValueError(f"不支持的 interleave：{interleave!r}（期望 bsq/bil/bip）")
+
+                self.data = cube.astype(np.float32)
+
+            elif file_path.lower().endswith(".h5") or file_path.lower().endswith(".hdf5"):
+                # HDF5 高光谱数据文件
+                if read_hdf5_hypercube is None:
+                    raise ImportError(
+                        "HDF5 读取模块不可用（hdf5_reader.py 导入失败或未安装 h5py）。"
+                    )
+
+                cube, info = read_hdf5_hypercube(file_path)
+                self.data = cube.astype(np.float32)
+                self.envi_header = None
+                self.hdf5_info = info
 
             elif file_path.lower().endswith(".raw"):
                 # RAW 文件：弹出参数对话框
@@ -244,15 +305,19 @@ class HyperSpectralViewer(QMainWindow):
                     params = dialog.get_params()
                     arr = self.load_raw_file(file_path, params)
                     self.data = arr.astype(np.float32)
+                    self.envi_header = None
+                    self.hdf5_info = None
                 else:
                     return  # 用户取消了对话框
 
             else:
-                raise ValueError("不支持的文件格式。支持格式：.npy, .raw")
+                raise ValueError("不支持的文件格式。支持格式：.npy, .raw, .hdr(ENVI), .h5/.hdf5(HDF5)")
 
         except Exception as e:
             self.info_label.setText(f"加载失败：{e}")
             self.data = None
+            self.envi_header = None
+            self.hdf5_info = None
             self.band_combo.clear()
             self.canvas.ax_img.cla()
             self.canvas.ax_spec.cla()

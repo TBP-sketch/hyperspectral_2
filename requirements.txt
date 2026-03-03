@@ -3,5 +3,6 @@ numpy
 matplotlib
 PyQt5
 spectral
+h5py
 
 
