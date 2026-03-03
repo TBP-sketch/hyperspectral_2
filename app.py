@@ -17,6 +17,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSlider,
     QVBoxLayout,
@@ -314,7 +315,21 @@ class HyperSpectralViewer(QMainWindow):
                 raise ValueError("不支持的文件格式。支持格式：.npy, .raw, .hdr(ENVI), .h5/.hdf5(HDF5)")
 
         except Exception as e:
-            self.info_label.setText(f"加载失败：{e}")
+            # 统一的错误处理入口：使用弹窗提示错误信息，而不是直接写在界面标签上
+            msg = str(e)
+            if "不支持的文件格式" in msg:
+                # 1. 非支持格式
+                ui_msg = "当前格式暂不支持"
+            elif "文件大小不匹配" in msg:
+                # 2a. RAW 等场景：头信息与数据长度不一致
+                ui_msg = "文件大小不匹配"
+            elif "数据大小不匹配" in msg:
+                # 2b. ENVI / HDF5 等场景：元数据与实际数据量不符
+                ui_msg = "数据大小不匹配"
+            else:
+                ui_msg = f"加载失败：{msg}"
+
+            QMessageBox.critical(self, "加载高光谱数据失败", ui_msg)
             self.data = None
             self.envi_header = None
             self.hdf5_info = None
