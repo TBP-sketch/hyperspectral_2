@@ -40,6 +40,12 @@ except Exception:  # 同样防御，避免导入失败直接中断 GUI
     HDF5Error = Exception  # type: ignore
     read_hdf5_hypercube = None  # type: ignore
 
+# 数据格式转换对话框（ConvertDialog）
+try:
+    from convert_dialog import ConvertDialog
+except Exception:
+    ConvertDialog = None  # type: ignore
+
 
 matplotlib.use("Qt5Agg")
 
@@ -195,6 +201,11 @@ class HyperSpectralViewer(QMainWindow):
         btn_open.clicked.connect(self.open_file)
         controls.addWidget(btn_open)
 
+        # 可选：数据格式转换为 ENVI 的对话框入口
+        btn_convert = QPushButton("数据格式转换为 ENVI")
+        btn_convert.clicked.connect(self.open_convert_dialog)
+        controls.addWidget(btn_convert)
+
         self.info_label = QLabel("未加载数据")
         self.info_label.setWordWrap(True)
         controls.addWidget(self.info_label)
@@ -229,6 +240,79 @@ class HyperSpectralViewer(QMainWindow):
 
         # 连接鼠标点击事件，用于光谱曲线显示
         self.canvas.mpl_connect("button_press_event", self.on_click)
+
+    # ---------- 辅助：从 ENVI 头文件加载数据 ----------
+    def load_envi_file(self, hdr_path: str) -> None:
+        """
+        从 ENVI 头文件加载数据并在当前窗口中显示。
+
+        该方法供 ConvertDialog 在转换完成后调用：
+            dlg.envi_ready.connect(self.load_envi_file)
+        """
+        if read_envi is None:
+            QMessageBox.critical(
+                self,
+                "加载 ENVI 失败",
+                "envi_reader 模块不可用，无法加载 ENVI 文件。",
+            )
+            return
+
+        try:
+            arr, header = read_envi(hdr_path)
+            self.envi_header = header
+            self.hdf5_info = None
+
+            interleave = str(header.get("interleave", "")).strip().lower()
+            if interleave == "bsq":
+                cube = np.transpose(arr, (1, 2, 0))
+            elif interleave == "bil":
+                cube = np.transpose(arr, (0, 2, 1))
+            elif interleave == "bip":
+                cube = arr
+            else:
+                raise ValueError(f"不支持的 interleave：{interleave!r}（期望 bsq/bil/bip）")
+
+            self.data = cube.astype(np.float32)
+
+            h, w, b = self.data.shape
+            self.info_label.setText(f"数据已加载：形状 (H, W, B) = ({h}, {w}, {b})")
+
+            self.band_combo.blockSignals(True)
+            self.band_combo.clear()
+            for i in range(b):
+                self.band_combo.addItem(f"Band {i}")
+            self.band_combo.setCurrentIndex(0)
+            self.band_combo.blockSignals(False)
+
+            self.current_band = 0
+            self.img_artist = None
+            self.cbar = None
+            self.update_image()
+        except Exception as e:
+            QMessageBox.critical(self, "加载 ENVI 失败", str(e))
+
+    # ---------- 辅助：打开转换对话框 ----------
+    def open_convert_dialog(self) -> None:
+        """
+        打开数据格式转换为 ENVI 的对话框。
+
+        示例用法：可通过菜单或按钮调用：
+
+            dlg = ConvertDialog(self)
+            dlg.envi_ready.connect(self.load_envi_file)
+            dlg.exec_()
+        """
+        if ConvertDialog is None:
+            QMessageBox.critical(
+                self,
+                "功能不可用",
+                "ConvertDialog 未能导入，请检查 convert_dialog.py 是否存在且无语法错误。",
+            )
+            return
+
+        dlg = ConvertDialog(self)
+        dlg.envi_ready.connect(self.load_envi_file)
+        dlg.exec_()
 
     # ---------- 数据读取 ----------
     def open_file(self):
