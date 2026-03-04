@@ -80,7 +80,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
 
         self.page_data_load = DataLoadPage(self.data_manager, self)
-        self.page_preprocess = PreprocessPage(self)
+        self.page_preprocess = PreprocessPage(self.data_manager, self)
         self.page_export = ExportPage(self)
         self.page_visualization = VisualizationPage(self.data_manager, self)
 

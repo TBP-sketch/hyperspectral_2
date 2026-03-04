@@ -17,8 +17,10 @@ import matplotlib
 from matplotlib import rcParams
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
+from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread
+from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -31,7 +33,9 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QSlider,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -388,16 +392,303 @@ class DataLoadPage(QWidget):
         dlg.exec_()
 
 
-# ---------- 页面：预处理（占位） ----------
-class PreprocessPage(QWidget):
-    """预处理模块（占位，后续可扩展为滤波、裁剪、波段选择等功能）。"""
+class _AtmosWorker(QObject):
+    """
+    大气校正工作线程中的实际执行者。
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    为了避免阻塞 UI，把计算放到 QThread 中，由该对象负责具体处理。
+    这里为了示例，仅实现一个“模拟的大气校正”流程：对数据立方体应用简单的缩放。
+    如果项目中安装并正确配置了 Py6S，可以在此处接入真实计算逻辑。
+    """
+
+    progress = pyqtSignal(int)          # 进度：0-100
+    log = pyqtSignal(str)              # 日志信息
+    finished = pyqtSignal(bool, object)  # (是否成功, 结果数组或 None)
+
+    def __init__(
+        self,
+        cube: np.ndarray,
+        atm_profile: str,
+        aero_profile: str,
+        parent: Optional[QObject] = None,
+    ) -> None:
         super().__init__(parent)
+        self._cube = cube
+        self._atm_profile = atm_profile
+        self._aero_profile = aero_profile
+
+    def run(self) -> None:
+        """
+        工作入口函数：在 QThread 中调用。
+        """
+        try:
+            self.log.emit(f"开始大气校正：大气模式={self._atm_profile}，气溶胶类型={self._aero_profile}")
+
+            # 这里不强依赖 Py6S，仅做一个简化示例：
+            # - 假设大气校正相当于对每个波段乘以一个系数（0.9 ~ 1.1 之间），
+            #   以模拟“校正后亮度轻微变化”的效果。
+            cube = self._cube.astype(np.float32, copy=True)
+            h, w, b = cube.shape
+
+            for i in range(b):
+                # 简单的伪系数：根据索引平滑变化
+                factor = 0.9 + 0.2 * (i / max(b - 1, 1))
+                cube[:, :, i] *= factor
+
+                # 更新进度
+                progress = int((i + 1) / b * 100)
+                self.progress.emit(progress)
+
+            self.log.emit("大气校正完成。")
+            self.finished.emit(True, cube)
+        except Exception as e:
+            self.log.emit(f"大气校正失败：{e}")
+            self.finished.emit(False, None)
+
+
+# ---------- 页面：预处理 ----------
+class PreprocessPage(QWidget):
+    """
+    预处理模块：
+    1. 辐射定标：DN -> 反射率（线性变换：Reflectance = Gain * DN + Offset）
+    2. 简化大气校正：暴露大气模式 / 气溶胶类型，其余参数使用默认值或在工作线程中模拟实现。
+    """
+
+    def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.data_manager = data_manager
+
+        # 当前数据立方体引用（形状 (H, W, B)），由 DataManager 提供
+        self.data_cube: Optional[np.ndarray] = None
+
+        # 大气校正线程句柄
+        self._atm_thread: Optional[QThread] = None
+        self._atm_worker: Optional[_AtmosWorker] = None
+
+        self._init_ui()
+
+        # 订阅数据变化：当 DataManager 中的数据更新时，同步缓存
+        self.data_manager.data_changed.connect(self.on_data_changed)
+
+    # ---------- UI 构建 ----------
+    def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        label = QLabel("预处理模块开发中...\n\n未来将在此添加光谱预处理、噪声抑制、波段选择等功能。")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
+
+        # === 辐射定标组 ===
+        calib_group = QGroupBox("辐射定标")
+        calib_layout = QVBoxLayout(calib_group)
+
+        self.chk_auto_calib = QCheckBox("启用自动转换（按最大值归一化到 0-1）")
+        self.chk_auto_calib.setChecked(True)
+        calib_layout.addWidget(self.chk_auto_calib)
+
+        form = QFormLayout()
+        self.edit_gain = QLineEdit("1.0")
+        self.edit_offset = QLineEdit("0.0")
+        form.addRow("手动增益 (Gain)：", self.edit_gain)
+        form.addRow("手动偏移 (Offset)：", self.edit_offset)
+        calib_layout.addLayout(form)
+
+        # 当启用自动转换时，禁用手动输入框
+        self.chk_auto_calib.toggled.connect(self._on_auto_calib_toggled)
+        self._on_auto_calib_toggled(self.chk_auto_calib.isChecked())
+
+        btn_apply_calib = QPushButton("应用定标")
+        btn_apply_calib.clicked.connect(self.apply_radiometric_calibration)
+        calib_layout.addWidget(btn_apply_calib)
+
+        layout.addWidget(calib_group)
+
+        # === 大气校正组 ===
+        atm_group = QGroupBox("简化大气校正（基于 Py6S 概念）")
+        atm_layout = QFormLayout(atm_group)
+
+        self.combo_atm_profile = QComboBox()
+        self.combo_atm_profile.addItems(
+            [
+                "Tropical",
+                "Midlatitude Summer",
+                "Midlatitude Winter",
+                "Subarctic Summer",
+                "Subarctic Winter",
+                "US Standard 1962",
+            ]
+        )
+
+        self.combo_aero_profile = QComboBox()
+        self.combo_aero_profile.addItems(
+            [
+                "Rural",
+                "Urban",
+                "Maritime",
+                "Desert",
+                "Biomass Burning",
+                "Stratospheric",
+            ]
+        )
+
+        atm_layout.addRow("大气模式：", self.combo_atm_profile)
+        atm_layout.addRow("气溶胶类型：", self.combo_aero_profile)
+
+        btn_run_atm = QPushButton("执行大气校正")
+        btn_run_atm.clicked.connect(self.run_atmospheric_correction)
+        from PyQt5.QtWidgets import QHBoxLayout
+
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(btn_run_atm)
+        atm_layout.addRow(btn_layout)
+
+        layout.addWidget(atm_group)
+
+        # === 进度与日志 ===
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.text_log = QTextEdit()
+        self.text_log.setReadOnly(True)
+        layout.addWidget(self.text_log, 1)
+
+        layout.addStretch(0)
+
+    # ---------- 数据同步 ----------
+    def on_data_changed(self, cube: np.ndarray) -> None:
+        """
+        当 DataManager 中的数据被其他模块更新时调用。
+        这里只是缓存一个引用，实际操作在各个处理函数中进行。
+        """
+        self.data_cube = cube
+        h, w, b = cube.shape
+        self._append_log(f"接收到新数据：形状 (H, W, B) = ({h}, {w}, {b})")
+
+    # ---------- 日志工具 ----------
+    def _append_log(self, message: str, color: Optional[QColor] = None) -> None:
+        """
+        在日志窗口中追加一行文字。
+        若提供 color，则使用该颜色显示（例如错误信息用红色）。
+        """
+        if color is not None:
+            self.text_log.setTextColor(color)
+        else:
+            # 使用默认颜色
+            self.text_log.setTextColor(QColor(0, 0, 0))
+        self.text_log.append(message)
+
+    def _on_auto_calib_toggled(self, checked: bool) -> None:
+        """
+        当“启用自动转换”勾选状态变化时，启用/禁用手动增益与偏移输入框。
+        """
+        self.edit_gain.setEnabled(not checked)
+        self.edit_offset.setEnabled(not checked)
+
+    # ---------- 辐射定标逻辑 ----------
+    def apply_radiometric_calibration(self) -> None:
+        """
+        应用简单的辐射定标：
+        - 若启用自动转换：按每个波段的最大值归一化到 [0, 1];
+        - 否则按用户输入的 Gain / Offset 做线性变换：R = Gain * DN + Offset。
+
+        结果通过 DataManager 回写并通知其他模块（尤其是可视化模块）刷新。
+        """
+        if self.data_cube is None:
+            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            return
+
+        cube = self.data_cube.astype(np.float32, copy=True)
+
+        if self.chk_auto_calib.isChecked():
+            self._append_log("执行自动辐射定标：按最大值归一化到 [0, 1]...")
+            # 针对整个立方体按全局最大值归一化，也可以按波段分开归一化
+            max_val = float(np.max(cube))
+            if max_val <= 0:
+                self._append_log("数据最大值 <= 0，无法进行归一化。", QColor(200, 0, 0))
+                return
+            cube /= max_val
+        else:
+            try:
+                gain = float(self.edit_gain.text().strip())
+                offset = float(self.edit_offset.text().strip())
+            except ValueError:
+                QMessageBox.warning(self, "参数错误", "请正确输入增益和偏移值（浮点数）。")
+                return
+            self._append_log(f"执行手动辐射定标：R = {gain} * DN + {offset}")
+            cube = gain * cube + offset
+
+        # 将结果写回 DataManager，并更新本地引用
+        self.data_manager.set_data(cube)
+        self.data_cube = cube
+        self._append_log("辐射定标完成，数据已更新。")
+
+    # ---------- 大气校正逻辑（异步） ----------
+    def run_atmospheric_correction(self) -> None:
+        """
+        启动大气校正工作线程，避免长时间计算阻塞 UI。
+        """
+        if self.data_cube is None:
+            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            return
+        if self._atm_thread is not None:
+            QMessageBox.information(self, "正在处理", "已有大气校正任务在进行中，请稍候。")
+            return
+
+        atm_profile = self.combo_atm_profile.currentText()
+        aero_profile = self.combo_aero_profile.currentText()
+
+        self._append_log(f"准备执行大气校正：大气模式={atm_profile}，气溶胶类型={aero_profile}")
+
+        # 进度条初始化
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+
+        # 创建线程与工作对象
+        self._atm_thread = QThread(self)
+        self._atm_worker = _AtmosWorker(self.data_cube, atm_profile, aero_profile)
+        self._atm_worker.moveToThread(self._atm_thread)
+
+        # 线程/工作对象信号连接
+        self._atm_thread.started.connect(self._atm_worker.run)
+        self._atm_worker.progress.connect(self.on_atmos_progress)
+        self._atm_worker.log.connect(self.on_atmos_log)
+        self._atm_worker.finished.connect(self.on_atmos_finished)
+
+        # 线程结束时清理资源
+        self._atm_worker.finished.connect(self._atm_thread.quit)
+        self._atm_thread.finished.connect(self._atm_worker.deleteLater)
+        self._atm_thread.finished.connect(self._atm_thread.deleteLater)
+
+        # 线程真正结束后，把句柄清空，方便下次再次启动
+        def _cleanup() -> None:
+            self._atm_thread = None
+            self._atm_worker = None
+
+        self._atm_thread.finished.connect(_cleanup)
+
+        # 启动线程
+        self._atm_thread.start()
+
+    # 大气校正进度与结果回调
+    def on_atmos_progress(self, value: int) -> None:
+        self.progress_bar.setValue(max(0, min(100, int(value))))
+
+    def on_atmos_log(self, message: str) -> None:
+        self._append_log(message)
+
+    def on_atmos_finished(self, success: bool, result: Any) -> None:
+        self.progress_bar.setVisible(False)
+
+        if not success or result is None:
+            # 错误信息已经在 worker 中通过 log 发出，这里只补充一条红色提醒
+            self._append_log("大气校正失败，请检查日志信息。", QColor(200, 0, 0))
+            return
+
+        # 更新数据并通知其他模块
+        corrected_cube = np.asarray(result, dtype=np.float32)
+        self.data_manager.set_data(corrected_cube)
+        self.data_cube = corrected_cube
+        self._append_log("大气校正成功，数据已更新并同步到可视化模块。")
 
 
 # ---------- 页面：导出（占位） ----------
