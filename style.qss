@@ -1,0 +1,151 @@
+/* 全局基础样式 */
+QMainWindow {
+    background-color: #F5F5F5;
+}
+
+QWidget {
+    font-family: "Microsoft YaHei", "SimHei", "Arial";
+    font-size: 11pt;
+}
+
+/* 顶部菜单栏 */
+QMenuBar {
+    background-color: #F5F5F5;
+    border-bottom: 1px solid #DDDDDD;
+}
+
+QMenuBar::item {
+    padding: 4px 10px;
+    background: transparent;
+}
+
+QMenuBar::item:selected {
+    background: #E0E0E0;
+}
+
+/* 工具栏 */
+QToolBar#mainToolBar {
+    background-color: #FAFAFA;
+    border-bottom: 1px solid #DDDDDD;
+    spacing: 4px;
+}
+
+QToolButton {
+    background-color: transparent;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+QToolButton:hover {
+    background-color: #E0F2F1;
+}
+
+/* 左侧导航栏 */
+QListWidget#navList {
+    background-color: #FFFFFF;
+    border-right: 1px solid #DDDDDD;
+}
+
+QListWidget#navList::item {
+    padding: 8px 12px;
+    margin: 2px 4px;
+    border-radius: 6px;
+}
+
+QListWidget#navList::item:selected {
+    background-color: #4CAF50;
+    color: white;
+}
+
+QListWidget#navList::item:hover {
+    background-color: #E8F5E9;
+}
+
+/* 按钮 */
+QPushButton {
+    background-color: #4CAF50;
+    color: white;
+    border-radius: 6px;
+    padding: 6px 14px;
+    border: none;
+}
+
+QPushButton:hover {
+    background-color: #43A047;
+}
+
+QPushButton:pressed {
+    background-color: #388E3C;
+}
+
+QPushButton:disabled {
+    background-color: #BDBDBD;
+    color: #EEEEEE;
+}
+
+/* 组框与标签 */
+QGroupBox {
+    border: 1px solid #DDDDDD;
+    border-radius: 6px;
+    margin-top: 10px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+    background-color: #F5F5F5;
+}
+
+QLabel {
+    color: #333333;
+}
+
+/* 行编辑与下拉框 */
+QLineEdit,
+QComboBox {
+    border: 1px solid #CCCCCC;
+    border-radius: 4px;
+    padding: 4px 6px;
+    background-color: #FFFFFF;
+}
+
+QLineEdit:focus,
+QComboBox:focus {
+    border: 1px solid #4CAF50;
+}
+
+/* 滑块 */
+QSlider::groove:horizontal {
+    border: 1px solid #CCCCCC;
+    height: 6px;
+    background: #E0E0E0;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #4CAF50;
+    border: 1px solid #43A047;
+    width: 14px;
+    margin: -4px 0;
+    border-radius: 7px;
+}
+
+/* 进度条 */
+QProgressBar {
+    border: 1px solid #CCCCCC;
+    border-radius: 4px;
+    text-align: center;
+}
+
+QProgressBar::chunk {
+    background-color: #4CAF50;
+    border-radius: 3px;
+}
+
+/* 状态栏 */
+QStatusBar {
+    background-color: #FAFAFA;
+    border-top: 1px solid #DDDDDD;
+}
+
