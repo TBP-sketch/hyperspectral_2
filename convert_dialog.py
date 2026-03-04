@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
     QSpinBox,
     QTextEdit,
     QVBoxLayout,
+    QWidget,
 )
 
 try:
@@ -111,6 +112,17 @@ class ConvertDialog(QDialog):
         self.worker_thread: Optional[QThread] = None
         self.worker: Optional[_ConvertWorker] = None
 
+        # 动态参数控件引用（随格式变化重新创建，避免 Qt 删除后悬挂）
+        self.edit_hdf_dataset: Optional[QLineEdit] = None
+        self.btn_hdf_list: Optional[QPushButton] = None
+        self.spin_bin_samples: Optional[QSpinBox] = None
+        self.spin_bin_lines: Optional[QSpinBox] = None
+        self.spin_bin_bands: Optional[QSpinBox] = None
+        self.combo_bin_dtype: Optional[QComboBox] = None
+        self.combo_bin_interleave: Optional[QComboBox] = None
+        self.spin_bin_offset: Optional[QSpinBox] = None
+        self.combo_bin_byteorder: Optional[QComboBox] = None
+
         self._init_ui()
 
     # ---------- 界面构建 ----------
@@ -182,48 +194,12 @@ class ConvertDialog(QDialog):
         btn_layout.addWidget(btn_close)
         main_layout.addLayout(btn_layout)
 
-        # 初始化格式参数区域
-        self._init_param_widgets()
+        # 初始化格式参数区域（根据当前源格式创建相应控件）
         self.on_format_changed()
 
     def _clear_params_form(self) -> None:
         while self.params_form.rowCount():
             self.params_form.removeRow(0)
-
-    def _init_param_widgets(self) -> None:
-        # HDF4/5 参数
-        self.edit_hdf_dataset = QLineEdit()
-        self.btn_hdf_list = QPushButton("读取数据集列表")
-        self.btn_hdf_list.clicked.connect(self.on_list_hdf_datasets)
-
-        # 通用二进制参数
-        self.spin_bin_samples = QSpinBox()
-        self.spin_bin_samples.setRange(1, 10_000_000)
-        self.spin_bin_samples.setValue(100)
-
-        self.spin_bin_lines = QSpinBox()
-        self.spin_bin_lines.setRange(1, 10_000_000)
-        self.spin_bin_lines.setValue(100)
-
-        self.spin_bin_bands = QSpinBox()
-        self.spin_bin_bands.setRange(1, 10_000)
-        self.spin_bin_bands.setValue(10)
-
-        self.combo_bin_dtype = QComboBox()
-        # 与 importer.convert_to_envi 中的数据类型编码约定：
-        # 1: uint8, 2: uint16, 3: int16, 4: float32
-        self.combo_bin_dtype.addItems(["uint8", "uint16", "int16", "float32"])
-
-        self.combo_bin_interleave = QComboBox()
-        self.combo_bin_interleave.addItems(["BSQ", "BIL", "BIP"])
-
-        self.spin_bin_offset = QSpinBox()
-        self.spin_bin_offset.setRange(0, 1_000_000_000)
-        self.spin_bin_offset.setValue(0)
-
-        self.combo_bin_byteorder = QComboBox()
-        self.combo_bin_byteorder.addItems(["小端 (little-endian)", "大端 (big-endian)"])
-        self.combo_bin_byteorder.setCurrentIndex(0)
 
     # ---------- 槽函数 ----------
     def browse_file(self) -> None:
@@ -262,24 +238,48 @@ class ConvertDialog(QDialog):
             self.params_form.addRow(QLabel("无需额外参数。"))
         elif fmt_text == "HDF4/5":
             self.group_params.setTitle("格式参数 - HDF4/5")
-            row_widget = QHBoxLayout()
-            container = QHBoxLayout()
-            w = QHBoxLayout()
-            # 为了保持简单，这里直接用一个小的布局组合编辑框和按钮
-            h_layout = QHBoxLayout()
-            h_widget = QPushButton()  # 占位，稍后替换
-            # 实际更简单的做法：使用一个 QWidget 包住编辑框和按钮
-            from PyQt5.QtWidgets import QWidget
-
             container_widget = QWidget()
             container_layout = QHBoxLayout(container_widget)
             container_layout.setContentsMargins(0, 0, 0, 0)
+            # 每次格式切换时重新创建控件，避免 Qt 布局删除后使用悬挂指针
+            self.edit_hdf_dataset = QLineEdit()
+            self.btn_hdf_list = QPushButton("读取数据集列表")
+            self.btn_hdf_list.clicked.connect(self.on_list_hdf_datasets)
             container_layout.addWidget(self.edit_hdf_dataset, 1)
             container_layout.addWidget(self.btn_hdf_list)
 
             self.params_form.addRow("数据集路径：", container_widget)
         else:  # 通用二进制
             self.group_params.setTitle("格式参数 - 通用二进制")
+            # 重新创建各控件，防止被布局删除后继续使用同一实例导致崩溃
+            self.spin_bin_samples = QSpinBox()
+            self.spin_bin_samples.setRange(1, 10_000_000)
+            self.spin_bin_samples.setValue(100)
+
+            self.spin_bin_lines = QSpinBox()
+            self.spin_bin_lines.setRange(1, 10_000_000)
+            self.spin_bin_lines.setValue(100)
+
+            self.spin_bin_bands = QSpinBox()
+            self.spin_bin_bands.setRange(1, 10_000)
+            self.spin_bin_bands.setValue(10)
+
+            self.combo_bin_dtype = QComboBox()
+            # 与 importer.convert_to_envi 中的数据类型编码约定：
+            # 1: uint8, 2: uint16, 3: int16, 4: float32
+            self.combo_bin_dtype.addItems(["uint8", "uint16", "int16", "float32"])
+
+            self.combo_bin_interleave = QComboBox()
+            self.combo_bin_interleave.addItems(["BSQ", "BIL", "BIP"])
+
+            self.spin_bin_offset = QSpinBox()
+            self.spin_bin_offset.setRange(0, 1_000_000_000)
+            self.spin_bin_offset.setValue(0)
+
+            self.combo_bin_byteorder = QComboBox()
+            self.combo_bin_byteorder.addItems(["小端 (little-endian)", "大端 (big-endian)"])
+            self.combo_bin_byteorder.setCurrentIndex(0)
+
             self.params_form.addRow("samples（列数）：", self.spin_bin_samples)
             self.params_form.addRow("lines（行数）：", self.spin_bin_lines)
             self.params_form.addRow("bands（波段数）：", self.spin_bin_bands)
