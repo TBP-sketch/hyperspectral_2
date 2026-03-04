@@ -20,6 +20,7 @@ from matplotlib.figure import Figure
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -34,6 +35,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QProgressBar,
+    QRadioButton,
     QSlider,
     QTextEdit,
     QVBoxLayout,
@@ -74,10 +76,13 @@ class DataManager(QObject):
     """
 
     data_changed = pyqtSignal(np.ndarray)
+    spectrum_changed = pyqtSignal(np.ndarray)
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._data: Optional[np.ndarray] = None
+        self._current_spectrum: Optional[np.ndarray] = None
+        self._wavelengths: Optional[np.ndarray] = None
 
     @property
     def data(self) -> Optional[np.ndarray]:
@@ -86,6 +91,28 @@ class DataManager(QObject):
     def set_data(self, arr: np.ndarray) -> None:
         self._data = arr
         self.data_changed.emit(arr)
+
+    @property
+    def current_spectrum(self) -> Optional[np.ndarray]:
+        return self._current_spectrum
+
+    def set_current_spectrum(self, spectrum: np.ndarray) -> None:
+        self._current_spectrum = spectrum
+        self.spectrum_changed.emit(spectrum)
+
+    @property
+    def wavelengths(self) -> Optional[np.ndarray]:
+        return self._wavelengths
+
+    def set_wavelengths(self, wl: Optional[np.ndarray]) -> None:
+        """
+        设置波长数组（可选）。
+        长度应与波段数一致，若不一致，上层在使用前需自行检查。
+        """
+        if wl is None:
+            self._wavelengths = None
+        else:
+            self._wavelengths = np.asarray(wl, dtype=float)
 
 
 # ---------- Matplotlib 画布 ----------
@@ -693,14 +720,242 @@ class PreprocessPage(QWidget):
 
 # ---------- 页面：导出（占位） ----------
 class ExportPage(QWidget):
-    """导出模块（占位，后续可扩展为导出 ENVI / GeoTIFF / PNG 等）。"""
+    """
+    导出模块：
+    - 将当前高光谱数据立方体导出为 ENVI / CSV（GeoTIFF 入口预留）；
+    - 支持导出全图或当前选中像素的光谱曲线。
+    """
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.data_manager = data_manager
+
+        # 缓存的当前数据与光谱
+        self.data_cube: Optional[np.ndarray] = None
+        self.current_spectrum: Optional[np.ndarray] = None
+
+        self._init_ui()
+
+        # 订阅数据与光谱变化
+        self.data_manager.data_changed.connect(self.on_data_changed)
+        self.data_manager.spectrum_changed.connect(self.on_spectrum_changed)
+
+    # ---------- UI 构建 ----------
+    def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
-        label = QLabel("导出模块开发中...\n\n未来将在此添加导出 ENVI、GeoTIFF、图像快照等功能。")
-        label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(label)
+
+        # === 导出格式 ===
+        fmt_group = QGroupBox("导出格式")
+        fmt_layout = QVBoxLayout(fmt_group)
+        self.chk_envi = QCheckBox("ENVI（.hdr + .dat）")
+        self.chk_envi.setChecked(True)
+        self.chk_csv = QCheckBox("CSV")
+        self.chk_geotiff = QCheckBox("GeoTIFF（预留，暂未实现）")
+        self.chk_geotiff.setEnabled(False)
+        fmt_layout.addWidget(self.chk_envi)
+        fmt_layout.addWidget(self.chk_csv)
+        fmt_layout.addWidget(self.chk_geotiff)
+        layout.addWidget(fmt_group)
+
+        # === 范围选择 ===
+        range_group = QGroupBox("导出范围")
+        range_layout = QVBoxLayout(range_group)
+        self.radio_full = QRadioButton("全图数据（展平成 Pixels x Bands）")
+        self.radio_pixel = QRadioButton("当前选中像素的光谱曲线")
+        self.radio_full.setChecked(True)
+        range_layout.addWidget(self.radio_full)
+        range_layout.addWidget(self.radio_pixel)
+
+        self.range_group_btn = QButtonGroup(self)
+        self.range_group_btn.addButton(self.radio_full)
+        self.range_group_btn.addButton(self.radio_pixel)
+
+        layout.addWidget(range_group)
+
+        # === 路径选择 ===
+        path_group = QGroupBox("输出路径")
+        path_layout = QHBoxLayout(path_group)
+        self.edit_path = QLineEdit()
+        btn_browse = QPushButton("浏览...")
+        btn_browse.clicked.connect(self.browse_output)
+        path_layout.addWidget(self.edit_path, 1)
+        path_layout.addWidget(btn_browse)
+        layout.addWidget(path_group)
+
+        # === 转换工具入口（复用 ConvertDialog） ===
+        btn_convert = QPushButton("打开“数据格式转换为 ENVI”工具...")
+        btn_convert.clicked.connect(self.open_convert_dialog)
+        layout.addWidget(btn_convert)
+
+        # === 进度 & 日志 ===
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        self.text_log = QTextEdit()
+        self.text_log.setReadOnly(True)
+        layout.addWidget(self.text_log, 1)
+
+        # === 执行按钮 ===
+        btn_export = QPushButton("开始导出")
+        btn_export.setMinimumHeight(40)
+        btn_export.clicked.connect(self.start_export)
+        layout.addWidget(btn_export)
+
+    # ---------- 数据同步 ----------
+    def on_data_changed(self, cube: np.ndarray) -> None:
+        self.data_cube = cube
+        h, w, b = cube.shape
+        self._append_log(f"接收到新数据可供导出：形状 (H, W, B) = ({h}, {w}, {b})")
+
+    def on_spectrum_changed(self, spectrum: np.ndarray) -> None:
+        self.current_spectrum = spectrum
+        self._append_log("已更新当前选中像素的光谱曲线。")
+
+    # ---------- 日志工具 ----------
+    def _append_log(self, message: str, color: Optional[QColor] = None) -> None:
+        if color is not None:
+            self.text_log.setTextColor(color)
+        else:
+            self.text_log.setTextColor(QColor(0, 0, 0))
+        self.text_log.append(message)
+
+    # ---------- 路径选择 ----------
+    def browse_output(self) -> None:
+        """
+        让用户选择输出主名（不含扩展名）。
+        例如用户选择 xxx.envi，内部会截掉扩展名，只保留 stem。
+        """
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "选择导出文件路径（将根据所选格式自动添加扩展名）",
+            "",
+            "所有文件 (*.*)",
+        )
+        if not path:
+            return
+        stem, _ = os.path.splitext(path)
+        self.edit_path.setText(stem)
+
+    # ---------- 导出入口 ----------
+    def start_export(self) -> None:
+        """
+        校验参数并执行导出逻辑。
+        当前为同步导出，数据量较大时可进一步改为 QThread。
+        """
+        if self.data_cube is None:
+            QMessageBox.warning(self, "未加载数据", "当前没有可导出的高光谱数据。")
+            return
+
+        if not (self.chk_envi.isChecked() or self.chk_csv.isChecked() or self.chk_geotiff.isChecked()):
+            QMessageBox.warning(self, "未选择格式", "请至少选择一种导出格式。")
+            return
+
+        output_stem = self.edit_path.text().strip()
+        if not output_stem:
+            QMessageBox.warning(self, "路径未填写", "请先选择输出路径。")
+            return
+
+        # 初始化进度条
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self._append_log("开始导出...")
+
+        try:
+            # 1. ENVI 导出
+            if self.chk_envi.isChecked():
+                self._append_log("导出 ENVI 格式...")
+                self._export_envi(output_stem)
+                self.progress_bar.setValue(40)
+
+            # 2. CSV 导出
+            if self.chk_csv.isChecked():
+                self._append_log("导出 CSV 格式...")
+                self._export_csv(output_stem)
+                self.progress_bar.setValue(80)
+
+            # 3. GeoTIFF（留空，预留位置）
+            if self.chk_geotiff.isChecked():
+                self._append_log("GeoTIFF 导出暂未实现。", QColor(150, 100, 0))
+
+            self.progress_bar.setValue(100)
+            QMessageBox.information(self, "导出完成", f"数据已成功导出到：\n{output_stem}.*")
+        except Exception as e:
+            self._append_log(f"导出失败：{e}", QColor(200, 0, 0))
+            QMessageBox.critical(self, "导出失败", f"导出过程中发生错误：\n{e}")
+        finally:
+            self.progress_bar.setVisible(False)
+
+    # ---------- 具体导出实现 ----------
+    def _export_envi(self, output_stem: str) -> None:
+        """
+        使用 envi_writer 将当前数据立方体导出为 ENVI (.hdr + .dat)。
+        仅支持全图导出。
+        """
+        from envi_writer import write_envi
+
+        if self.data_cube is None:
+            raise RuntimeError("没有可导出的数据立方体。")
+
+        # 这里固定使用 BSQ 以兼容性最佳
+        hdr_path, dat_path = write_envi(output_stem, self.data_cube, interleave="bsq")
+        self._append_log(f"ENVI 导出完成：\n  {hdr_path}\n  {dat_path}")
+
+    def _export_csv(self, output_stem: str) -> None:
+        """
+        导出 CSV：
+        - 全图模式：展平为 (Pixels, Bands) 矩阵；
+        - 像素模式：输出两列：Index/Wavelength 与 Value。
+        """
+        if self.data_cube is None:
+            raise RuntimeError("没有可导出的数据立方体。")
+
+        import numpy as np
+
+        csv_path = output_stem + ".csv"
+
+        if self.radio_full.isChecked():
+            h, w, b = self.data_cube.shape
+            pixels = h * w
+            arr = self.data_cube.reshape((pixels, b))
+            header = ",".join([f"Band_{i}" for i in range(b)])
+            np.savetxt(csv_path, arr, delimiter=",", header=header, comments="")
+            self._append_log(f"CSV 全图导出完成：{csv_path}")
+        else:
+            # 单像素光谱
+            if self.current_spectrum is None:
+                raise RuntimeError("当前未选中任何像素，无法导出光谱曲线。")
+
+            y = np.asarray(self.current_spectrum, dtype=float).reshape(-1)
+            b = y.shape[0]
+
+            # 优先使用 DataManager 中的波长信息；否则用 band index 代替
+            wl = self.data_manager.wavelengths
+            if wl is not None and len(wl) == b:
+                x = np.asarray(wl, dtype=float).reshape(-1)
+                header = "Wavelength,Value"
+            else:
+                x = np.arange(b, dtype=float)
+                header = "BandIndex,Value"
+
+            arr = np.column_stack([x, y])
+            np.savetxt(csv_path, arr, delimiter=",", header=header, comments="")
+            self._append_log(f"CSV 光谱曲线导出完成：{csv_path}")
+
+    # ---------- 转换工具入口 ----------
+    def open_convert_dialog(self) -> None:
+        if ConvertDialog is None:
+            QMessageBox.critical(
+                self,
+                "功能不可用",
+                "ConvertDialog 未能导入，请检查 convert_dialog.py 是否存在且无语法错误。",
+            )
+            return
+
+        dlg = ConvertDialog(self)
+        dlg.exec_()
 
 
 # ---------- 页面：可视化 ----------
@@ -903,4 +1158,7 @@ class VisualizationPage(QWidget):
         col = int(event.xdata + 0.5)
         row = int(event.ydata + 0.5)
         self.update_spectrum(row, col)
+        # 将当前像素的光谱曲线同步到 DataManager，供导出模块使用
+        spectrum = self.data[row, col, :]
+        self.data_manager.set_current_spectrum(spectrum)
 

@@ -81,7 +81,8 @@ class MainWindow(QMainWindow):
 
         self.page_data_load = DataLoadPage(self.data_manager, self)
         self.page_preprocess = PreprocessPage(self.data_manager, self)
-        self.page_export = ExportPage(self)
+        # ExportPage 需要 DataManager，用于获取当前数据与光谱
+        self.page_export = ExportPage(self.data_manager, self)
         self.page_visualization = VisualizationPage(self.data_manager, self)
 
         self.stack.addWidget(self.page_data_load)       # index 0
