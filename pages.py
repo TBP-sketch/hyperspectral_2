@@ -613,26 +613,28 @@ class PreprocessPage(QWidget):
         atm_layout = QFormLayout(atm_group)
 
         self.combo_atm_profile = QComboBox()
+        # 大气模式选项汉化（括号中为对应英文名，方便后续与 Py6S 等库对接）
         self.combo_atm_profile.addItems(
             [
-                "Tropical",
-                "Midlatitude Summer",
-                "Midlatitude Winter",
-                "Subarctic Summer",
-                "Subarctic Winter",
-                "US Standard 1962",
+                "热带 (Tropical)",
+                "中纬度夏季 (Midlatitude Summer)",
+                "中纬度冬季 (Midlatitude Winter)",
+                "亚北极夏季 (Subarctic Summer)",
+                "亚北极冬季 (Subarctic Winter)",
+                "美国标准大气 1962 (US Standard 1962)",
             ]
         )
 
         self.combo_aero_profile = QComboBox()
+        # 气溶胶类型选项汉化
         self.combo_aero_profile.addItems(
             [
-                "Rural",
-                "Urban",
-                "Maritime",
-                "Desert",
-                "Biomass Burning",
-                "Stratospheric",
+                "农村 (Rural)",
+                "城市 (Urban)",
+                "海洋 (Maritime)",
+                "沙漠 (Desert)",
+                "生物质燃烧 (Biomass Burning)",
+                "平流层 (Stratospheric)",
             ]
         )
 
