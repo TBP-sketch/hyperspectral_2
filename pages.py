@@ -36,6 +36,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QInputDialog,
     QMessageBox,
     QPushButton,
     QProgressBar,
@@ -45,6 +46,13 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+try:
+    # MATLAB .mat 读取器（core/loader.py）
+    from core.loader import load_mat_file, list_mat_cube_candidates
+except Exception:
+    load_mat_file = None  # type: ignore
+    list_mat_cube_candidates = None  # type: ignore
 
 matplotlib.use("Qt5Agg")
 
@@ -273,12 +281,23 @@ class DataLoadPage(QWidget):
             self,
             "选择高光谱数据文件",
             "",
-            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;HDF5 文件 (*.h5 *.hdf5);;RAW 文件 (*.raw);;所有文件 (*.*)",
+            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;HDF5 文件 (*.h5 *.hdf5);;RAW 文件 (*.raw);;MATLAB Files (*.mat);;所有文件 (*.*)",
         )
         if not path:
             return
         self.edit_path.setText(path)
         self.load_file(path)
+
+    def _set_status(self, message: str) -> None:
+        """
+        尝试在主窗口状态栏显示提示（若当前窗口是 QMainWindow）。
+        """
+        w = self.window()
+        try:
+            status = w.statusBar()  # type: ignore[attr-defined]
+            status.showMessage(message)
+        except Exception:
+            return
 
     def load_current_file(self) -> None:
         path = self.edit_path.text().strip()
@@ -342,6 +361,60 @@ class DataLoadPage(QWidget):
                 else:
                     return
 
+            elif file_path.lower().endswith(".mat"):
+                # MATLAB .mat：可能是 v7（scipy.io.loadmat）或 v7.3（HDF5）
+                if load_mat_file is None:
+                    raise ImportError(
+                        "MATLAB 读取模块不可用。请确保已安装 scipy（以及 v7.3 需要 h5py）。"
+                    )
+
+                self._set_status("正在解析 MATLAB 结构...")
+
+                # 先列候选，若多于 1 个则让用户选择
+                chosen_key: str | None = None
+                if list_mat_cube_candidates is not None:
+                    candidates = list_mat_cube_candidates(file_path)
+                    if len(candidates) > 1:
+                        items = [f"{k}  shape={s}" for k, s in candidates]
+                        choice, ok = QInputDialog.getItem(
+                            self,
+                            "选择数据源",
+                            "检测到多个三维数组，请选择一个作为高光谱数据：",
+                            items,
+                            0,
+                            False,
+                        )
+                        if not ok:
+                            return
+                        chosen_key = choice.split("  shape=")[0]
+
+                cube, wavelengths, source_key = load_mat_file(file_path)
+
+                # 如果用户选择了特定 key，但 load_mat_file 返回的不是它，则重新按选择加载（简单实现：再次读取并取该 key）
+                if chosen_key is not None and chosen_key != source_key:
+                    # 直接复用 load_mat_file 的策略可能返回不同 key；这里做一次确定性选择
+                    try:
+                        from scipy import io as spio
+                        d = spio.loadmat(file_path, struct_as_record=False, squeeze_me=True)
+                        if chosen_key in d and isinstance(d[chosen_key], np.ndarray) and d[chosen_key].ndim == 3:
+                            arr = np.asarray(d[chosen_key])
+                            # (B,H,W) -> (H,W,B)
+                            if arr.shape[0] < arr.shape[1] and arr.shape[0] < arr.shape[2]:
+                                arr = np.transpose(arr, (1, 2, 0))
+                            cube = arr.astype(np.float32, copy=False)
+                            if wavelengths is None or wavelengths.size != cube.shape[2]:
+                                wavelengths = np.arange(1, cube.shape[2] + 1, dtype=np.float64)
+                            source_key = chosen_key
+                    except Exception:
+                        pass
+
+                data = cube.astype(np.float32, copy=False)
+                # 保存波长到 DataManager（供导出/可视化未来使用）
+                self.data_manager.set_wavelengths(wavelengths)
+                self.info_label.setText(
+                    f"检测到 MATLAB 格式，自动提取 [{source_key}] 作为数据源。"
+                )
+
             else:
                 raise ValueError(
                     "不支持的文件格式。支持格式：.npy, .raw, .hdr(ENVI), .h5/.hdf5(HDF5)"
@@ -366,7 +439,12 @@ class DataLoadPage(QWidget):
         self.data_manager.set_data(data)
 
         h, w, b = data.shape
-        self.info_label.setText(f"数据已加载：形状 (H, W, B) = ({h}, {w}, {b})")
+        # 若上面已写入 MATLAB 提示行，则追加形状；否则正常显示形状
+        if "MATLAB" in self.info_label.text():
+            self.info_label.setText(self.info_label.text() + f"\n数据形状 (H, W, B) = ({h}, {w}, {b})")
+        else:
+            self.info_label.setText(f"数据已加载：形状 (H, W, B) = ({h}, {w}, {b})")
+        self._set_status("就绪")
 
     def _load_raw_file(self, file_path: str, params: dict) -> np.ndarray:
         """读取 RAW 二进制文件，并返回 (H, W, B) 数组。"""

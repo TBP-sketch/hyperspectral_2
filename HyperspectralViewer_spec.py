@@ -1,5 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-
+#
+# 原 HyperspectralViewer.spec 已重命名为 Python 脚本形式，避免被编辑器误判为 RPM 规格文件。
+#
+# 打包命令示例（在项目根目录执行）：
+#   pyinstaller HyperspectralViewer_spec.py
+#
 
 a = Analysis(
     ['app.py'],
@@ -36,3 +41,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
