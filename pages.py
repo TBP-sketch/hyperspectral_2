@@ -10,13 +10,17 @@ from __future__ import annotations
 以及简单的数据管理器 DataManager，用于在页面间共享高光谱数据。
 """
 
+import os
 from typing import Any, Optional
 
 import numpy as np
 import matplotlib
 from matplotlib import rcParams
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
+from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
+from matplotlib.colors import Normalize
 from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
@@ -961,9 +965,13 @@ class ExportPage(QWidget):
 # ---------- 页面：可视化 ----------
 class VisualizationPage(QWidget):
     """
-    可视化页面：显示单波段灰度图 + 像素光谱曲线，
-    并提供简单的对比度拉伸控制。
+    可视化页面：单波段灰度图 / 假彩色合成 + 光谱曲线，
+    带交互工具栏（缩放、平移、重置、保存、清除曲线）、滚轮缩放与拖拽平移，
+    光谱曲线支持波长着色与坐标/极值标注；大数据量时降采样显示以保持流畅。
     """
+
+    # 超过此边长时对显示用图像做降采样，以减轻卡顿
+    _MAX_DISPLAY_SIDE = 1200
 
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -976,6 +984,15 @@ class VisualizationPage(QWidget):
         self.cbar = None
         self.img_artist = None
 
+        # 显示模式：'single_band' | 'false_color'
+        self._display_mode: str = "single_band"
+        # 假彩色 R/G/B 波段索引（仅在 false_color 时有效）
+        self._rgb_bands: tuple[int, int, int] = (0, 0, 0)
+
+        # 当前点击像素，用于光谱曲线与标注
+        self._last_spectrum_row: Optional[int] = None
+        self._last_spectrum_col: Optional[int] = None
+
         self._init_ui()
 
         # 订阅数据变化
@@ -984,36 +1001,56 @@ class VisualizationPage(QWidget):
     def _init_ui(self) -> None:
         layout = QGridLayout(self)
 
-        # Matplotlib 画布
-        self.canvas = MplCanvas(self)
-        layout.addWidget(self.canvas, 0, 0, 4, 1)
+        # ---------- 画布区域：工具栏 + FigureCanvas ----------
+        canvas_layout = QVBoxLayout()
+        canvas_layout.setSpacing(2)
 
-        # 提前设置光谱坐标轴标签与位置
+        # Matplotlib 画布（使用 FigureCanvasQTAgg）
+        self.canvas = MplCanvas(self)
+        self._nav_toolbar = NavigationToolbar2QT(self.canvas, self)
+
+        # 自定义按钮行：清除曲线、放大、缩小、重置视图、保存图像
+        custom_btn_row = QHBoxLayout()
+        btn_clear_curve = QPushButton("清除曲线")
+        btn_clear_curve.clicked.connect(self._clear_spectrum_curve)
+        btn_zoom_in = QPushButton("放大")
+        btn_zoom_in.clicked.connect(self._zoom_in)
+        btn_zoom_out = QPushButton("缩小")
+        btn_zoom_out.clicked.connect(self._zoom_out)
+        btn_reset = QPushButton("重置视图")
+        btn_reset.clicked.connect(self._reset_view)
+        btn_save = QPushButton("保存图像")
+        btn_save.clicked.connect(self._save_figure)
+
+        custom_btn_row.addWidget(btn_clear_curve)
+        custom_btn_row.addWidget(btn_zoom_in)
+        custom_btn_row.addWidget(btn_zoom_out)
+        custom_btn_row.addWidget(btn_reset)
+        custom_btn_row.addWidget(btn_save)
+        custom_btn_row.addStretch(1)
+
+        canvas_layout.addWidget(self._nav_toolbar)
+        canvas_layout.addLayout(custom_btn_row)
+        canvas_layout.addWidget(self.canvas, 1)
+
+        layout.addLayout(canvas_layout, 0, 0, 4, 1)
+
+        # 画布子图初始化与占位
         self.canvas.ax_spec.set_xlabel("波段索引")
         self.canvas.ax_spec.set_ylabel("反射率 / DN")
         self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
-        # 初始占位
         self.canvas.ax_img.axis("off")
         self.canvas.ax_img.text(
-            0.5,
-            0.5,
-            "未加载图像数据",
-            transform=self.canvas.ax_img.transAxes,
-            ha="center",
-            va="center",
-            fontsize=12,
+            0.5, 0.5, "未加载图像数据",
+            transform=self.canvas.ax_img.transAxes, ha="center", va="center", fontsize=12,
         )
         self.canvas.ax_spec.text(
-            0.5,
-            0.5,
+            0.5, 0.5,
             "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
-            transform=self.canvas.ax_spec.transAxes,
-            ha="center",
-            va="center",
-            fontsize=10,
+            transform=self.canvas.ax_spec.transAxes, ha="center", va="center", fontsize=10,
         )
 
-        # 控件区
+        # ---------- 右侧控件 ----------
         controls = QVBoxLayout()
         layout.addLayout(controls, 0, 1, 4, 1)
 
@@ -1021,11 +1058,25 @@ class VisualizationPage(QWidget):
         self.info_label.setWordWrap(True)
         controls.addWidget(self.info_label)
 
-        # 波段选择
+        # 波段选择（单波段模式）
         controls.addWidget(QLabel("波段选择："))
         self.band_combo = QComboBox()
         self.band_combo.currentIndexChanged.connect(self.on_band_changed)
         controls.addWidget(self.band_combo)
+
+        # 假彩色合成
+        fcc_group = QGroupBox("假彩色合成")
+        fcc_layout = QFormLayout(fcc_group)
+        self.combo_r = QComboBox()
+        self.combo_g = QComboBox()
+        self.combo_b = QComboBox()
+        fcc_layout.addRow("R 波段：", self.combo_r)
+        fcc_layout.addRow("G 波段：", self.combo_g)
+        fcc_layout.addRow("B 波段：", self.combo_b)
+        btn_false_color = QPushButton("生成假彩色图")
+        btn_false_color.clicked.connect(self._apply_false_color)
+        fcc_layout.addRow(btn_false_color)
+        controls.addWidget(fcc_group)
 
         # 对比度拉伸
         controls.addWidget(QLabel("下限百分位（min %）："))
@@ -1035,7 +1086,6 @@ class VisualizationPage(QWidget):
         self.slider_min.setValue(2)
         self.slider_min.valueChanged.connect(self.on_stretch_changed)
         controls.addWidget(self.slider_min)
-
         controls.addWidget(QLabel("上限百分位（max %）："))
         self.slider_max = QSlider(Qt.Horizontal)
         self.slider_max.setMinimum(50)
@@ -1043,14 +1093,175 @@ class VisualizationPage(QWidget):
         self.slider_max.setValue(98)
         self.slider_max.valueChanged.connect(self.on_stretch_changed)
         controls.addWidget(self.slider_max)
-
         self.stretch_label = QLabel("对比度拉伸：2% - 98%")
         controls.addWidget(self.stretch_label)
 
         controls.addStretch(1)
 
-        # 鼠标点击事件（用于光谱曲线）
-        self.canvas.mpl_connect("button_press_event", self.on_click)
+        # 鼠标事件：点击选光谱；滚轮缩放；拖拽平移
+        self.canvas.mpl_connect("button_press_event", self._on_button_press)
+        self.canvas.mpl_connect("button_release_event", self._on_button_release)
+        self.canvas.mpl_connect("scroll_event", self._on_scroll)
+        self.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        self._pan_start: Optional[tuple[float, float]] = None
+        self._panning: bool = False
+
+    # ---------- 工具栏动作 ----------
+    def _clear_spectrum_curve(self) -> None:
+        """清除光谱子图，恢复占位提示。"""
+        self.canvas.ax_spec.cla()
+        self.canvas.ax_spec.set_xlabel("波段索引")
+        self.canvas.ax_spec.set_ylabel("反射率 / DN")
+        self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
+        self.canvas.ax_spec.text(
+            0.5, 0.5, "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
+            transform=self.canvas.ax_spec.transAxes, ha="center", va="center", fontsize=10,
+        )
+        self.canvas.draw_idle()
+        self._last_spectrum_row = None
+        self._last_spectrum_col = None
+
+    def _zoom_in(self) -> None:
+        """对当前焦点轴执行放大（缩小视窗范围）。"""
+        ax = self.canvas.figure.gca()
+        if ax is None:
+            return
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
+        cx, cy = (xlim[0] + xlim[1]) / 2, (ylim[0] + ylim[1]) / 2
+        w, h = (xlim[1] - xlim[0]) / 1.25, (ylim[1] - ylim[0]) / 1.25
+        ax.set_xlim(cx - w / 2, cx + w / 2)
+        ax.set_ylim(cy - h / 2, cy + h / 2)
+        self.canvas.draw_idle()
+
+    def _zoom_out(self) -> None:
+        ax = self.canvas.figure.gca()
+        if ax is None:
+            return
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
+        cx, cy = (xlim[0] + xlim[1]) / 2, (ylim[0] + ylim[1]) / 2
+        w, h = (xlim[1] - xlim[0]) * 1.25, (ylim[1] - ylim[0]) * 1.25
+        ax.set_xlim(cx - w / 2, cx + w / 2)
+        ax.set_ylim(cy - h / 2, cy + h / 2)
+        self.canvas.draw_idle()
+
+    def _reset_view(self) -> None:
+        """重置所有子图视图。"""
+        for ax in self.canvas.figure.get_axes():
+            ax.relim()
+            ax.autoscale_view()
+        self.canvas.draw_idle()
+
+    def _save_figure(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(
+            self, "保存图像", "", "PNG (*.png);;PDF (*.pdf);;所有文件 (*.*)"
+        )
+        if path:
+            try:
+                self.canvas.figure.savefig(path, dpi=150, bbox_inches="tight")
+                QMessageBox.information(self, "保存成功", f"已保存至：{path}")
+            except Exception as e:
+                QMessageBox.critical(self, "保存失败", str(e))
+
+    def _on_scroll(self, event: Any) -> None:
+        """滚轮缩放：对当前鼠标所在轴进行缩放。"""
+        if event.inaxes is None or event.button != "up" and event.button != "down":
+            return
+        ax = event.inaxes
+        base_scale = 1.2
+        factor = base_scale if event.button == "up" else 1.0 / base_scale
+        xlim, ylim = ax.get_xlim(), ax.get_ylim()
+        xdata, ydata = event.xdata, event.ydata
+        if xdata is None or ydata is None:
+            return
+        new_width = (xlim[1] - xlim[0]) / factor
+        new_height = (ylim[1] - ylim[0]) / factor
+        ax.set_xlim(xdata - new_width / 2, xdata + new_width / 2)
+        ax.set_ylim(ydata - new_height / 2, ydata + new_height / 2)
+        self.canvas.draw_idle()
+
+    def _on_button_press(self, event: Any) -> None:
+        """左键点击选光谱，中/右键开始拖拽平移。"""
+        if event.inaxes == self.canvas.ax_img and (event.xdata is not None and event.ydata is not None):
+            if event.button == 1:
+                self.on_click(event)
+                return
+        if event.button == 2 or event.button == 3:
+            if event.inaxes is not None and event.xdata is not None and event.ydata is not None:
+                self._panning = True
+                self._pan_start = (event.xdata, event.ydata)
+
+    def _on_button_release(self, event: Any) -> None:
+        if event.button == 2 or event.button == 3:
+            self._panning = False
+            self._pan_start = None
+
+    def _on_motion(self, event: Any) -> None:
+        """拖拽平移：中键或右键拖动时平移当前轴。"""
+        if not self._panning or event.inaxes is None or event.xdata is None or event.ydata is None:
+            return
+        if self._pan_start is None:
+            return
+        dx = event.xdata - self._pan_start[0]
+        dy = event.ydata - self._pan_start[1]
+        ax = event.inaxes
+        ax.set_xlim(ax.get_xlim() - dx)
+        ax.set_ylim(ax.get_ylim() - dy)
+        self._pan_start = (event.xdata, event.ydata)
+        self.canvas.draw_idle()
+
+    def _apply_false_color(self) -> None:
+        """根据 R/G/B 波段选择生成假彩色图并显示。"""
+        if self.data is None:
+            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            return
+        r_idx = self.combo_r.currentIndex()
+        g_idx = self.combo_g.currentIndex()
+        b_idx = self.combo_b.currentIndex()
+        self._rgb_bands = (r_idx, g_idx, b_idx)
+        self._display_mode = "false_color"
+        self._draw_false_color()
+
+    def _draw_false_color(self) -> None:
+        """使用当前 _rgb_bands 绘制假彩色 (H,W,3)。"""
+        if self.data is None:
+            return
+        r_idx, g_idx, b_idx = self._rgb_bands
+        h, w, b = self.data.shape
+        r_img = self._get_display_band(self.data[:, :, r_idx])
+        g_img = self._get_display_band(self.data[:, :, g_idx])
+        b_img = self._get_display_band(self.data[:, :, b_idx])
+        rgb = np.stack([r_img, g_img, b_img], axis=-1)
+        rgb = np.clip(rgb, 0, 1)
+
+        if self.img_artist is not None:
+            self.canvas.ax_img.clear()
+            self.canvas.ax_img.axis("off")
+            if self.cbar is not None:
+                try:
+                    self.cbar.remove()
+                except Exception:
+                    pass
+                self.cbar = None
+        self.img_artist = self.canvas.ax_img.imshow(
+            rgb, origin="upper", interpolation="bilinear"
+        )
+        self.canvas.ax_img.axis("off")
+        self.canvas.ax_img.set_title(f"假彩色 R={r_idx} G={g_idx} B={b_idx}")
+        self.canvas.draw_idle()
+
+    def _get_display_band(self, band_img: np.ndarray) -> np.ndarray:
+        """对单波段做百分位拉伸并可选降采样，返回 [0,1] 浮点。"""
+        p_min = np.percentile(band_img, self.stretch_min)
+        p_max = np.percentile(band_img, self.stretch_max)
+        if p_max <= p_min:
+            p_max = p_min + 1e-6
+        img = np.clip((band_img.astype(np.float64) - p_min) / (p_max - p_min), 0, 1)
+        # 性能优化：过大时按步长降采样（不依赖 scipy）
+        H, W = img.shape
+        if max(H, W) > self._MAX_DISPLAY_SIDE:
+            step = max(1, int(max(H, W) / self._MAX_DISPLAY_SIDE))
+            img = img[::step, ::step]
+        return img.astype(np.float32)
 
     # ---------- 数据 & 显示 ----------
     def on_data_changed(self, arr: np.ndarray) -> None:
@@ -1065,32 +1276,52 @@ class VisualizationPage(QWidget):
         self.band_combo.setCurrentIndex(0)
         self.band_combo.blockSignals(False)
 
+        for combo in (self.combo_r, self.combo_g, self.combo_b):
+            combo.blockSignals(True)
+            combo.clear()
+            for i in range(b):
+                combo.addItem(f"Band {i}")
+            combo.setCurrentIndex(min(0, max(0, b - 1)))
+            combo.blockSignals(False)
+
         self.current_band = 0
         self.img_artist = None
         self.cbar = None
+        self._display_mode = "single_band"
         self.update_image()
 
     def apply_contrast_stretch(self, band_img: np.ndarray) -> tuple[np.ndarray, float, float]:
-        """使用百分位进行简单线性拉伸。"""
         p_min = np.percentile(band_img, self.stretch_min)
         p_max = np.percentile(band_img, self.stretch_max)
         if p_max <= p_min:
             p_max = p_min + 1e-6
-
         img_clip = np.clip(band_img, p_min, p_max)
         return img_clip, float(p_min), float(p_max)
+
+    def _maybe_downsample(self, img: np.ndarray) -> np.ndarray:
+        """大数据量时按步长降采样以保持流畅（不依赖 scipy）。"""
+        H, W = img.shape
+        if max(H, W) <= self._MAX_DISPLAY_SIDE:
+            return img
+        step = max(1, int(max(H, W) / self._MAX_DISPLAY_SIDE))
+        return img[::step, ::step].copy()
 
     def update_image(self) -> None:
         if self.data is None:
             return
+        if self._display_mode == "false_color":
+            self._draw_false_color()
+            return
 
         band_img = self.data[:, :, self.current_band]
+        band_img = self._maybe_downsample(band_img)
         img_clip, v_min, v_max = self.apply_contrast_stretch(band_img)
 
         if self.img_artist is None:
             self.canvas.ax_img.cla()
             self.img_artist = self.canvas.ax_img.imshow(
-                img_clip, cmap="gray", origin="upper", vmin=v_min, vmax=v_max
+                img_clip, cmap="gray", origin="upper", vmin=v_min, vmax=v_max,
+                interpolation="bilinear",
             )
             self.canvas.ax_img.axis("off")
             self.cbar = self.canvas.fig.colorbar(
@@ -1103,7 +1334,7 @@ class VisualizationPage(QWidget):
                 self.cbar.update_normal(self.img_artist)
 
         self.canvas.ax_img.set_title(f"Band {self.current_band}")
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     def update_spectrum(self, row: int, col: int) -> None:
         if self.data is None:
@@ -1112,22 +1343,48 @@ class VisualizationPage(QWidget):
         if not (0 <= row < h and 0 <= col < w):
             return
 
-        spectrum = self.data[row, col, :]
+        spectrum = self.data[row, col, :].astype(np.float64)
+        self._last_spectrum_row, self._last_spectrum_col = row, col
+
+        v_min, v_max = float(np.min(spectrum)), float(np.max(spectrum))
+        margin = (v_max - v_min) * 0.05 or 1e-6
 
         self.canvas.ax_spec.cla()
-        self.canvas.ax_spec.plot(np.arange(b), spectrum, marker="o", markersize=3)
+        x = np.arange(b, dtype=float)
+        if b >= 2:
+            # 波长/波段索引着色：短波蓝 -> 长波红（coolwarm）
+            points = np.array([x, spectrum]).T.reshape(-1, 1, 2)
+            segments = np.concatenate([points[:-1], points[1:]], axis=1)
+            norm = Normalize(vmin=0, vmax=max(b - 1, 1))
+            try:
+                cmap = matplotlib.colormaps.get_cmap("coolwarm")
+            except AttributeError:
+                cmap = matplotlib.cm.get_cmap("coolwarm")
+            colors = [cmap(norm(i)) for i in range(b - 1)]
+            lc = LineCollection(segments, colors=colors, linewidths=2)
+            self.canvas.ax_spec.add_collection(lc)
+        else:
+            self.canvas.ax_spec.plot(x, spectrum, color="C0", linewidth=2)
+
+        self.canvas.ax_spec.set_xlim(0, max(b - 1, 0))
+        self.canvas.ax_spec.set_ylim(v_min - margin, v_max + margin)
         self.canvas.ax_spec.set_xlabel("波段索引")
         self.canvas.ax_spec.set_ylabel("反射率 / DN")
         self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
-        self.canvas.ax_spec.set_title(f"光谱曲线 @ (row={row}, col={col})")
+        title = f"光谱 @ (row={row}, col={col})  min={v_min:.4f} max={v_max:.4f}"
+        self.canvas.ax_spec.set_title(title)
         self.canvas.ax_spec.grid(True, linestyle="--", alpha=0.5)
-        self.canvas.draw()
+        self.canvas.draw_idle()
+
+        # 同步到 DataManager 供导出
+        self.data_manager.set_current_spectrum(spectrum.astype(np.float32))
 
     # ---------- 事件响应 ----------
     def on_band_changed(self, index: int) -> None:
         if self.data is None:
             return
         self.current_band = int(index)
+        self._display_mode = "single_band"
         self.update_image()
 
     def on_stretch_changed(self) -> None:
@@ -1140,25 +1397,19 @@ class VisualizationPage(QWidget):
             self.slider_min.blockSignals(False)
         self.stretch_min = float(v_min)
         self.stretch_max = float(v_max)
-
         self.stretch_label.setText(
             f"对比度拉伸：{self.stretch_min:.0f}% - {self.stretch_max:.0f}%"
         )
         self.update_image()
 
     def on_click(self, event: Any) -> None:
-        """在图像上点击，显示该像素位置的光谱曲线。"""
         if self.data is None:
             return
         if event.inaxes != self.canvas.ax_img:
             return
         if event.xdata is None or event.ydata is None:
             return
-
         col = int(event.xdata + 0.5)
         row = int(event.ydata + 0.5)
         self.update_spectrum(row, col)
-        # 将当前像素的光谱曲线同步到 DataManager，供导出模块使用
-        spectrum = self.data[row, col, :]
-        self.data_manager.set_current_spectrum(spectrum)
 
