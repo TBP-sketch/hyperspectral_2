@@ -22,7 +22,7 @@ from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize
 from matplotlib.ticker import MaxNLocator, ScalarFormatter
-from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread, QTimer
+from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QButtonGroup,
@@ -45,6 +45,7 @@ from PyQt5.QtWidgets import (
     QSlider,
     QSplitter,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -1102,6 +1103,12 @@ class VisualizationPage(QWidget):
         self._splitter.setStretchFactor(1, 2)
 
         self._nav_toolbar = NavigationToolbar2QT(self.canvas_img, self)
+        self._pan_mode_enabled = False
+        for btn in self._nav_toolbar.findChildren(QToolButton):
+            tt = (btn.toolTip() or "").lower()
+            if "pan" in tt or "move" in tt or btn.toolTip() in ("平移", "拖动"):
+                btn.toggled.connect(self._on_toolbar_pan_toggled)
+                break
 
         custom_btn_row = QHBoxLayout()
         btn_clear_curve = QPushButton("清除曲线")
@@ -1197,8 +1204,27 @@ class VisualizationPage(QWidget):
             c.mpl_connect("button_release_event", self._on_button_release)
             c.mpl_connect("scroll_event", self._on_scroll)
             c.mpl_connect("motion_notify_event", self._on_motion)
+            c.installEventFilter(self)
         self._pan_start: Optional[tuple[float, float]] = None
         self._panning: bool = False
+
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
+        """平移模式下在画布上显示移动光标。"""
+        if event.type() == QEvent.Enter and obj in (self.canvas_img, self.canvas_spec):
+            if self._pan_mode_enabled:
+                obj.setCursor(Qt.SizeAllCursor)
+        elif event.type() == QEvent.Leave and obj in (self.canvas_img, self.canvas_spec):
+            obj.setCursor(Qt.ArrowCursor)
+        return super().eventFilter(obj, event)
+
+    def _on_toolbar_pan_toggled(self, checked: bool) -> None:
+        """工具栏「平移」按钮切换时，启用/禁用左键拖动模式。"""
+        self._pan_mode_enabled = bool(checked)
+        for c in (self.canvas_img, self.canvas_spec):
+            if checked and c.underMouse():
+                c.setCursor(Qt.SizeAllCursor)
+            else:
+                c.setCursor(Qt.ArrowCursor)
 
     # ---------- 工具栏动作 ----------
     def _clear_spectrum_curve(self) -> None:
@@ -1286,18 +1312,19 @@ class VisualizationPage(QWidget):
         self.canvas_spec.draw_idle()
 
     def _on_button_press(self, event: Any) -> None:
-        """左键点击选光谱，中/右键开始拖拽平移。"""
-        if event.inaxes == self.canvas_img.ax and (event.xdata is not None and event.ydata is not None):
-            if event.button == 1:
-                self.on_click(event)
-                return
-        if event.button == 2 or event.button == 3:
+        """左键：平移模式下拖动，否则在图像上选光谱。中/右键：始终拖动平移。"""
+        use_left_for_pan = self._pan_mode_enabled and event.button == 1
+        use_middle_right_for_pan = event.button in (2, 3)
+        if use_left_for_pan or use_middle_right_for_pan:
             if event.inaxes is not None and event.xdata is not None and event.ydata is not None:
                 self._panning = True
                 self._pan_start = (event.xdata, event.ydata)
+            return
+        if event.button == 1 and event.inaxes == self.canvas_img.ax and (event.xdata is not None and event.ydata is not None):
+            self.on_click(event)
 
     def _on_button_release(self, event: Any) -> None:
-        if event.button == 2 or event.button == 3:
+        if self._panning and (event.button in (2, 3) or event.button == 1):
             self._panning = False
             self._pan_start = None
 
