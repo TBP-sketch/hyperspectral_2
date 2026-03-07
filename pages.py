@@ -43,6 +43,7 @@ from PyQt5.QtWidgets import (
     QProgressBar,
     QRadioButton,
     QSlider,
+    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -129,18 +130,18 @@ class DataManager(QObject):
 
 
 # ---------- Matplotlib 画布 ----------
-class MplCanvas(FigureCanvas):
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        self.fig = Figure(figsize=(6, 4), dpi=100)
-        self.ax_img = self.fig.add_subplot(1, 2, 1)
-        self.ax_spec = self.fig.add_subplot(1, 2, 2)
-        self.fig.tight_layout()
+class SingleAxesCanvas(FigureCanvas):
+    """单子图画布，用于 QSplitter 中独立布局，防止标题重叠。"""
+
+    def __init__(self, parent: Optional[QWidget] = None, figsize: tuple[float, float] = (4, 4)) -> None:
+        self.fig = Figure(figsize=figsize, dpi=100, constrained_layout=True)
+        self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
-        self.fig.tight_layout()
+        self.fig.set_constrained_layout(True)
         self.draw_idle()
 
 
@@ -1087,15 +1088,21 @@ class VisualizationPage(QWidget):
     def _init_ui(self) -> None:
         layout = QGridLayout(self)
 
-        # ---------- 画布区域：工具栏 + FigureCanvas ----------
+        # ---------- 画布区域：工具栏 + QSplitter(图像|光谱) ----------
         canvas_layout = QVBoxLayout()
         canvas_layout.setSpacing(2)
 
-        # Matplotlib 画布（使用 FigureCanvasQTAgg）
-        self.canvas = MplCanvas(self)
-        self._nav_toolbar = NavigationToolbar2QT(self.canvas, self)
+        self.canvas_img = SingleAxesCanvas(self, figsize=(4, 4))
+        self.canvas_spec = SingleAxesCanvas(self, figsize=(3, 4))
+        self._splitter = QSplitter(Qt.Horizontal)
+        self._splitter.addWidget(self.canvas_img)
+        self._splitter.addWidget(self.canvas_spec)
+        self._splitter.setSizes([360, 240])  # 60% : 40% 初始比例
+        self._splitter.setStretchFactor(0, 3)
+        self._splitter.setStretchFactor(1, 2)
 
-        # 自定义按钮行：清除曲线、放大、缩小、重置视图、保存图像
+        self._nav_toolbar = NavigationToolbar2QT(self.canvas_img, self)
+
         custom_btn_row = QHBoxLayout()
         btn_clear_curve = QPushButton("清除曲线")
         btn_clear_curve.clicked.connect(self._clear_spectrum_curve)
@@ -1117,23 +1124,23 @@ class VisualizationPage(QWidget):
 
         canvas_layout.addWidget(self._nav_toolbar)
         canvas_layout.addLayout(custom_btn_row)
-        canvas_layout.addWidget(self.canvas, 1)
+        canvas_layout.addWidget(self._splitter, 1)
 
         layout.addLayout(canvas_layout, 0, 0, 4, 1)
 
         # 画布子图初始化与占位
-        self.canvas.ax_spec.set_xlabel("波段索引")
-        self.canvas.ax_spec.set_ylabel("反射率 / DN")
-        self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
-        self.canvas.ax_img.axis("off")
-        self.canvas.ax_img.text(
+        self.canvas_spec.ax.set_xlabel("波段索引")
+        self.canvas_spec.ax.set_ylabel("反射率 / DN")
+        self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
+        self.canvas_img.ax.axis("off")
+        self.canvas_img.ax.text(
             0.5, 0.5, "未加载图像数据",
-            transform=self.canvas.ax_img.transAxes, ha="center", va="center", fontsize=12,
+            transform=self.canvas_img.ax.transAxes, ha="center", va="center", fontsize=12,
         )
-        self.canvas.ax_spec.text(
+        self.canvas_spec.ax.text(
             0.5, 0.5,
             "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
-            transform=self.canvas.ax_spec.transAxes, ha="center", va="center", fontsize=10,
+            transform=self.canvas_spec.ax.transAxes, ha="center", va="center", fontsize=10,
         )
 
         # ---------- 右侧控件 ----------
@@ -1184,32 +1191,34 @@ class VisualizationPage(QWidget):
 
         controls.addStretch(1)
 
-        # 鼠标事件：点击选光谱；滚轮缩放；拖拽平移
-        self.canvas.mpl_connect("button_press_event", self._on_button_press)
-        self.canvas.mpl_connect("button_release_event", self._on_button_release)
-        self.canvas.mpl_connect("scroll_event", self._on_scroll)
-        self.canvas.mpl_connect("motion_notify_event", self._on_motion)
+        # 鼠标事件：点击选光谱；滚轮缩放；拖拽平移（两个画布均需连接）
+        for c in (self.canvas_img, self.canvas_spec):
+            c.mpl_connect("button_press_event", self._on_button_press)
+            c.mpl_connect("button_release_event", self._on_button_release)
+            c.mpl_connect("scroll_event", self._on_scroll)
+            c.mpl_connect("motion_notify_event", self._on_motion)
         self._pan_start: Optional[tuple[float, float]] = None
         self._panning: bool = False
 
     # ---------- 工具栏动作 ----------
     def _clear_spectrum_curve(self) -> None:
         """清除光谱子图，恢复占位提示。"""
-        self.canvas.ax_spec.cla()
-        self.canvas.ax_spec.set_xlabel("波段索引")
-        self.canvas.ax_spec.set_ylabel("反射率 / DN")
-        self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
-        self.canvas.ax_spec.text(
+        self.canvas_spec.ax.cla()
+        self.canvas_spec.ax.set_xlabel("波段索引")
+        self.canvas_spec.ax.set_ylabel("反射率 / DN")
+        self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
+        self.canvas_spec.ax.text(
             0.5, 0.5, "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
-            transform=self.canvas.ax_spec.transAxes, ha="center", va="center", fontsize=10,
+            transform=self.canvas_spec.ax.transAxes, ha="center", va="center", fontsize=10,
         )
-        self.canvas.draw_idle()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
         self._last_spectrum_row = None
         self._last_spectrum_col = None
 
     def _zoom_in(self) -> None:
-        """对当前焦点轴执行放大（缩小视窗范围）。"""
-        ax = self.canvas.figure.gca()
+        """对光谱轴执行放大（缩小视窗范围）。"""
+        ax = self.canvas_spec.figure.gca()
         if ax is None:
             return
         xlim, ylim = ax.get_xlim(), ax.get_ylim()
@@ -1217,10 +1226,11 @@ class VisualizationPage(QWidget):
         w, h = (xlim[1] - xlim[0]) / 1.25, (ylim[1] - ylim[0]) / 1.25
         ax.set_xlim(cx - w / 2, cx + w / 2)
         ax.set_ylim(cy - h / 2, cy + h / 2)
-        self.canvas.draw_idle()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _zoom_out(self) -> None:
-        ax = self.canvas.figure.gca()
+        ax = self.canvas_spec.figure.gca()
         if ax is None:
             return
         xlim, ylim = ax.get_xlim(), ax.get_ylim()
@@ -1228,14 +1238,17 @@ class VisualizationPage(QWidget):
         w, h = (xlim[1] - xlim[0]) * 1.25, (ylim[1] - ylim[0]) * 1.25
         ax.set_xlim(cx - w / 2, cx + w / 2)
         ax.set_ylim(cy - h / 2, cy + h / 2)
-        self.canvas.draw_idle()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _reset_view(self) -> None:
-        """重置所有子图视图。"""
-        for ax in self.canvas.figure.get_axes():
-            ax.relim()
-            ax.autoscale_view()
-        self.canvas.draw_idle()
+        """重置图像与光谱子图视图。"""
+        for fig in (self.canvas_img.figure, self.canvas_spec.figure):
+            for ax in fig.get_axes():
+                ax.relim()
+                ax.autoscale_view()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _save_figure(self) -> None:
         path, _ = QFileDialog.getSaveFileName(
@@ -1243,7 +1256,13 @@ class VisualizationPage(QWidget):
         )
         if path:
             try:
-                self.canvas.figure.savefig(path, dpi=150, bbox_inches="tight")
+                if path.lower().endswith(".pdf"):
+                    from matplotlib.backends.backend_pdf import PdfPages
+                    with PdfPages(path) as pdf:
+                        self.canvas_img.figure.savefig(pdf, format="pdf", dpi=150, bbox_inches="tight")
+                        self.canvas_spec.figure.savefig(pdf, format="pdf", dpi=150, bbox_inches="tight")
+                else:
+                    self._splitter.grab().save(path)
                 QMessageBox.information(self, "保存成功", f"已保存至：{path}")
             except Exception as e:
                 QMessageBox.critical(self, "保存失败", str(e))
@@ -1263,11 +1282,12 @@ class VisualizationPage(QWidget):
         new_height = (ylim[1] - ylim[0]) / factor
         ax.set_xlim(xdata - new_width / 2, xdata + new_width / 2)
         ax.set_ylim(ydata - new_height / 2, ydata + new_height / 2)
-        self.canvas.draw_idle()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _on_button_press(self, event: Any) -> None:
         """左键点击选光谱，中/右键开始拖拽平移。"""
-        if event.inaxes == self.canvas.ax_img and (event.xdata is not None and event.ydata is not None):
+        if event.inaxes == self.canvas_img.ax and (event.xdata is not None and event.ydata is not None):
             if event.button == 1:
                 self.on_click(event)
                 return
@@ -1293,7 +1313,8 @@ class VisualizationPage(QWidget):
         ax.set_xlim(ax.get_xlim() - dx)
         ax.set_ylim(ax.get_ylim() - dy)
         self._pan_start = (event.xdata, event.ydata)
-        self.canvas.draw_idle()
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _apply_false_color(self) -> None:
         """根据 R/G/B 波段选择生成假彩色图并显示。"""
@@ -1320,20 +1341,21 @@ class VisualizationPage(QWidget):
         rgb = np.clip(rgb, 0, 1)
 
         if self.img_artist is not None:
-            self.canvas.ax_img.clear()
-            self.canvas.ax_img.axis("off")
+            self.canvas_img.ax.clear()
+            self.canvas_img.ax.axis("off")
             if self.cbar is not None:
                 try:
                     self.cbar.remove()
                 except Exception:
                     pass
                 self.cbar = None
-        self.img_artist = self.canvas.ax_img.imshow(
+        self.img_artist = self.canvas_img.ax.imshow(
             rgb, origin="upper", interpolation="bilinear"
         )
-        self.canvas.ax_img.axis("off")
-        self.canvas.ax_img.set_title(f"假彩色 R={r_idx} G={g_idx} B={b_idx}")
-        self.canvas.draw_idle()
+        self.canvas_img.ax.axis("off")
+        self.canvas_img.ax.set_title(f"假彩色 (R,G,B)=({r_idx},{g_idx},{b_idx})")
+        self.canvas_img.draw_idle()
+        self.canvas_spec.draw_idle()
 
     def _get_display_band(self, band_img: np.ndarray) -> np.ndarray:
         """对单波段做百分位拉伸并可选降采样，返回 [0,1] 浮点。"""
@@ -1384,9 +1406,8 @@ class VisualizationPage(QWidget):
 
     def _deferred_layout(self) -> None:
         """数据加载后延迟重算布局，确保 QSplitter 等已就绪、画布尺寸正确。"""
-        if self.canvas is not None and self.canvas.fig is not None:
-            self.canvas.fig.tight_layout()
-            self.canvas.draw()
+        self.canvas_img.draw()
+        self.canvas_spec.draw()
 
     def apply_contrast_stretch(self, band_img: np.ndarray) -> tuple[np.ndarray, float, float]:
         p_min = np.percentile(band_img, self.stretch_min)
@@ -1422,14 +1443,14 @@ class VisualizationPage(QWidget):
                 except Exception:
                     pass
                 self.cbar = None
-            self.canvas.ax_img.cla()
-            self.img_artist = self.canvas.ax_img.imshow(
+            self.canvas_img.ax.cla()
+            self.img_artist = self.canvas_img.ax.imshow(
                 img_clip, cmap="gray", origin="upper", vmin=v_min, vmax=v_max,
                 interpolation="bilinear",
             )
-            self.canvas.ax_img.axis("off")
-            self.cbar = self.canvas.fig.colorbar(
-                self.img_artist, ax=self.canvas.ax_img, fraction=0.046, pad=0.04
+            self.canvas_img.ax.axis("off")
+            self.cbar = self.canvas_img.fig.colorbar(
+                self.img_artist, ax=self.canvas_img.ax, fraction=0.046, pad=0.04
             )
             self.cbar.ax.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))
             self.cbar.ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
@@ -1439,9 +1460,8 @@ class VisualizationPage(QWidget):
             if self.cbar is not None:
                 self.cbar.update_normal(self.img_artist)
 
-        self.canvas.ax_img.set_title(f"波段 {self.current_band}")
-        self.canvas.fig.tight_layout()
-        self.canvas.draw()
+        self.canvas_img.ax.set_title(f"波段 {self.current_band}")
+        self.canvas_img.draw()
 
     def update_spectrum(self, row: int, col: int) -> None:
         if self.data is None:
@@ -1456,7 +1476,7 @@ class VisualizationPage(QWidget):
         v_min, v_max = float(np.min(spectrum)), float(np.max(spectrum))
         margin = (v_max - v_min) * 0.05 or 1e-6
 
-        self.canvas.ax_spec.cla()
+        self.canvas_spec.ax.cla()
         x = np.arange(b, dtype=float)
         if b >= 2:
             # 波长/波段索引着色：短波蓝 -> 长波红（coolwarm）
@@ -1469,24 +1489,26 @@ class VisualizationPage(QWidget):
                 cmap = matplotlib.cm.get_cmap("coolwarm")
             colors = [cmap(norm(i)) for i in range(b - 1)]
             lc = LineCollection(segments, colors=colors, linewidths=2)
-            self.canvas.ax_spec.add_collection(lc)
+            self.canvas_spec.ax.add_collection(lc)
         else:
-            self.canvas.ax_spec.plot(x, spectrum, color="C0", linewidth=2)
+            self.canvas_spec.ax.plot(x, spectrum, color="C0", linewidth=2)
 
-        self.canvas.ax_spec.set_xlim(0, max(b - 1, 0))
-        self.canvas.ax_spec.set_ylim(v_min - margin, v_max + margin)
-        self.canvas.ax_spec.set_xlabel("波段索引")
-        self.canvas.ax_spec.set_ylabel("反射率 / DN")
-        self.canvas.ax_spec.yaxis.set_label_coords(-0.10, 0.10)
-        title = f"光谱 @ (row={row}, col={col})  min={v_min:.4f} max={v_max:.4f}"
-        self.canvas.ax_spec.set_title(title)
-        self.canvas.ax_spec.grid(True, linestyle="--", alpha=0.5)
+        self.canvas_spec.ax.set_xlim(0, max(b - 1, 0))
+        self.canvas_spec.ax.set_ylim(v_min - margin, v_max + margin)
+        self.canvas_spec.ax.set_xlabel("波段索引")
+        self.canvas_spec.ax.set_ylabel("反射率 / DN")
+        self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
+        self.canvas_spec.ax.set_title(f"光谱 ({row}, {col})")
+        self.canvas_spec.ax.text(
+            0.02, 0.98, f"min={v_min:.4f} max={v_max:.4f}",
+            transform=self.canvas_spec.ax.transAxes, ha="left", va="top", fontsize=8,
+        )
+        self.canvas_spec.ax.grid(True, linestyle="--", alpha=0.5)
         # 减少刻度数量，避免 224 波段时 Y 轴标签重叠
-        self.canvas.ax_spec.xaxis.set_major_locator(MaxNLocator(nbins=min(12, max(b, 2)), integer=True))
-        self.canvas.ax_spec.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))
-        self.canvas.ax_spec.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
-        self.canvas.fig.tight_layout()
-        self.canvas.draw()
+        self.canvas_spec.ax.xaxis.set_major_locator(MaxNLocator(nbins=min(12, max(b, 2)), integer=True))
+        self.canvas_spec.ax.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))
+        self.canvas_spec.ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+        self.canvas_spec.draw()
 
         # 同步到 DataManager 供导出
         self.data_manager.set_current_spectrum(spectrum.astype(np.float32))
@@ -1517,7 +1539,7 @@ class VisualizationPage(QWidget):
     def on_click(self, event: Any) -> None:
         if self.data is None:
             return
-        if event.inaxes != self.canvas.ax_img:
+        if event.inaxes != self.canvas_img.ax:
             return
         if event.xdata is None or event.ydata is None:
             return
