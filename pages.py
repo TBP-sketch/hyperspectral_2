@@ -21,7 +21,8 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT
 from matplotlib.collections import LineCollection
 from matplotlib.figure import Figure
 from matplotlib.colors import Normalize
-from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread
+from matplotlib.ticker import MaxNLocator, ScalarFormatter
+from PyQt5.QtCore import QObject, Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QButtonGroup,
@@ -136,6 +137,11 @@ class MplCanvas(FigureCanvas):
         self.fig.tight_layout()
         super().__init__(self.fig)
         self.setParent(parent)
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        self.fig.tight_layout()
+        self.draw_idle()
 
 
 # ---------- RAW 参数对话框 ----------
@@ -1352,7 +1358,7 @@ class VisualizationPage(QWidget):
         self.band_combo.blockSignals(True)
         self.band_combo.clear()
         for i in range(b):
-            self.band_combo.addItem(f"Band {i}")
+            self.band_combo.addItem(f"波段 {i}")
         self.band_combo.setCurrentIndex(0)
         self.band_combo.blockSignals(False)
 
@@ -1360,15 +1366,27 @@ class VisualizationPage(QWidget):
             combo.blockSignals(True)
             combo.clear()
             for i in range(b):
-                combo.addItem(f"Band {i}")
+                combo.addItem(f"波段 {i}")
             combo.setCurrentIndex(min(0, max(0, b - 1)))
             combo.blockSignals(False)
 
         self.current_band = 0
+        if self.cbar is not None:
+            try:
+                self.cbar.remove()
+            except Exception:
+                pass
+            self.cbar = None
         self.img_artist = None
-        self.cbar = None
         self._display_mode = "single_band"
         self.update_image()
+        QTimer.singleShot(50, self._deferred_layout)
+
+    def _deferred_layout(self) -> None:
+        """数据加载后延迟重算布局，确保 QSplitter 等已就绪、画布尺寸正确。"""
+        if self.canvas is not None and self.canvas.fig is not None:
+            self.canvas.fig.tight_layout()
+            self.canvas.draw()
 
     def apply_contrast_stretch(self, band_img: np.ndarray) -> tuple[np.ndarray, float, float]:
         p_min = np.percentile(band_img, self.stretch_min)
@@ -1398,6 +1416,12 @@ class VisualizationPage(QWidget):
         img_clip, v_min, v_max = self.apply_contrast_stretch(band_img)
 
         if self.img_artist is None:
+            if self.cbar is not None:
+                try:
+                    self.cbar.remove()
+                except Exception:
+                    pass
+                self.cbar = None
             self.canvas.ax_img.cla()
             self.img_artist = self.canvas.ax_img.imshow(
                 img_clip, cmap="gray", origin="upper", vmin=v_min, vmax=v_max,
@@ -1407,14 +1431,17 @@ class VisualizationPage(QWidget):
             self.cbar = self.canvas.fig.colorbar(
                 self.img_artist, ax=self.canvas.ax_img, fraction=0.046, pad=0.04
             )
+            self.cbar.ax.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))
+            self.cbar.ax.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
         else:
             self.img_artist.set_data(img_clip)
             self.img_artist.set_clim(vmin=v_min, vmax=v_max)
             if self.cbar is not None:
                 self.cbar.update_normal(self.img_artist)
 
-        self.canvas.ax_img.set_title(f"Band {self.current_band}")
-        self.canvas.draw_idle()
+        self.canvas.ax_img.set_title(f"波段 {self.current_band}")
+        self.canvas.fig.tight_layout()
+        self.canvas.draw()
 
     def update_spectrum(self, row: int, col: int) -> None:
         if self.data is None:
@@ -1454,7 +1481,12 @@ class VisualizationPage(QWidget):
         title = f"光谱 @ (row={row}, col={col})  min={v_min:.4f} max={v_max:.4f}"
         self.canvas.ax_spec.set_title(title)
         self.canvas.ax_spec.grid(True, linestyle="--", alpha=0.5)
-        self.canvas.draw_idle()
+        # 减少刻度数量，避免 224 波段时 Y 轴标签重叠
+        self.canvas.ax_spec.xaxis.set_major_locator(MaxNLocator(nbins=min(12, max(b, 2)), integer=True))
+        self.canvas.ax_spec.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))
+        self.canvas.ax_spec.yaxis.set_major_formatter(ScalarFormatter(useOffset=False))
+        self.canvas.fig.tight_layout()
+        self.canvas.draw()
 
         # 同步到 DataManager 供导出
         self.data_manager.set_current_spectrum(spectrum.astype(np.float32))
