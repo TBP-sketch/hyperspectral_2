@@ -1104,9 +1104,11 @@ class VisualizationPage(QWidget):
 
         self._nav_toolbar = NavigationToolbar2QT(self.canvas_img, self)
         self._pan_mode_enabled = False
+        self._pan_tool_btn: Optional[QToolButton] = None
         for btn in self._nav_toolbar.findChildren(QToolButton):
             tt = (btn.toolTip() or "").lower()
             if "pan" in tt or "move" in tt or btn.toolTip() in ("平移", "拖动"):
+                self._pan_tool_btn = btn
                 btn.toggled.connect(self._on_toolbar_pan_toggled)
                 break
 
@@ -1218,8 +1220,13 @@ class VisualizationPage(QWidget):
         return super().eventFilter(obj, event)
 
     def _on_toolbar_pan_toggled(self, checked: bool) -> None:
-        """工具栏「平移」按钮切换时，启用/禁用左键拖动模式。"""
+        """工具栏「平移」按钮切换时，启用/禁用左键拖动模式，并更新按钮样式与画布光标。"""
         self._pan_mode_enabled = bool(checked)
+        if self._pan_tool_btn is not None:
+            if checked:
+                self._pan_tool_btn.setStyleSheet("QToolButton:checked { background-color: #a0a0a0; }")
+            else:
+                self._pan_tool_btn.setStyleSheet("")
         for c in (self.canvas_img, self.canvas_spec):
             if checked and c.underMouse():
                 c.setCursor(Qt.SizeAllCursor)
