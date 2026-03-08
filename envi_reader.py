@@ -2,7 +2,7 @@
 """
 ENVI 高光谱数据读取模块。
 
-解析 ENVI 标准 .hdr 头文件，并读取对应的 .raw/.dat 二进制数据，
+解析 ENVI 标准 .hdr 头文件，并读取对应的 .raw/.dat/.data 二进制数据，
 支持多种数据类型与字节序，返回形状为 (lines, samples, bands) 的 numpy 数组。
 """
 
@@ -165,11 +165,11 @@ def get_numpy_dtype(envi_dtype_str: str) -> np.dtype:
 
 def read_envi_data(raw_path: str, hdr_dict: dict[str, Any]) -> np.ndarray:
     """
-    根据 hdr_dict 中的尺寸和数据类型，从 .raw 文件中读取数据，
+    根据 hdr_dict 中的尺寸和数据类型，从 ENVI 数据文件（.raw/.dat/.data）中读取数据，
     处理字节序，并按 interleave 重整为 (lines, samples, bands)。
 
     Args:
-        raw_path: .raw 或 .dat 数据文件路径。
+        raw_path: ENVI 数据文件路径（.raw/.dat/.data）。
         hdr_dict: parse_hdr() 返回的头信息字典。
 
     Returns:
@@ -179,7 +179,9 @@ def read_envi_data(raw_path: str, hdr_dict: dict[str, Any]) -> np.ndarray:
         EnviError: 文件不存在或尺寸/类型不匹配。
     """
     if not os.path.isfile(raw_path):
-        raise EnviError(f"未找到对应的 .raw 文件，请确认文件名与 .hdr 一致: {raw_path!r}")
+        raise EnviError(
+            f"未找到对应的数据文件（.raw/.dat/.data），请确认文件名与 .hdr 一致: {raw_path!r}"
+        )
 
     samples = int(hdr_dict.get("samples", 0))
     lines = int(hdr_dict.get("lines", 0))
@@ -233,7 +235,7 @@ def read_envi_data(raw_path: str, hdr_dict: dict[str, Any]) -> np.ndarray:
 
 def load_envi_dataset(hdr_path: str) -> tuple[np.ndarray, dict[str, Any]]:
     """
-    给定 .hdr 文件路径，自动查找同名 .raw/.dat，解析头并读取数据。
+    给定 .hdr 文件路径，自动查找同名 .raw/.dat/.data，解析头并读取数据。
 
     Args:
         hdr_path: .hdr 头文件路径。
@@ -242,14 +244,21 @@ def load_envi_dataset(hdr_path: str) -> tuple[np.ndarray, dict[str, Any]]:
         (data_array, header_dict)，数组形状为 (lines, samples, bands)。
 
     Raises:
-        EnviError: 头文件不存在、.raw 不存在或解析/读取失败。
+        EnviError: 头文件不存在、数据文件不存在或解析/读取失败。
     """
     hdr_path = os.path.abspath(hdr_path)
     if not hdr_path.lower().endswith(".hdr"):
         raise EnviError(f"期望 .hdr 文件路径，得到: {hdr_path!r}")
 
     base = hdr_path[:-4]  # 去掉 .hdr
-    raw_candidates = [base + ".raw", base + ".dat", base + ".RAW", base + ".DAT"]
+    raw_candidates = [
+        base + ".raw",
+        base + ".dat",
+        base + ".data",
+        base + ".RAW",
+        base + ".DAT",
+        base + ".DATA",
+    ]
     raw_path = None
     for p in raw_candidates:
         if os.path.isfile(p):
@@ -257,7 +266,7 @@ def load_envi_dataset(hdr_path: str) -> tuple[np.ndarray, dict[str, Any]]:
             break
     if raw_path is None:
         raise EnviError(
-            "未找到对应的 .raw 文件，请确认文件名与 .hdr 一致。"
+            "未找到对应的数据文件（.raw/.dat/.data），请确认文件名与 .hdr 一致。"
             f" 尝试路径: {raw_candidates[0]!r} 等。"
         )
 
@@ -272,10 +281,10 @@ def load_envi_dataset(hdr_path: str) -> tuple[np.ndarray, dict[str, Any]]:
 
 def read_envi(file_path: str) -> tuple[np.ndarray, dict[str, Any]]:
     """
-    加载 ENVI 数据集，支持传入 .hdr 或 .raw/.dat 路径。
+    加载 ENVI 数据集，支持传入 .hdr 或 .raw/.dat/.data 路径。
 
-    - 若为 .hdr：直接按该头文件查找同名 .raw/.dat 并加载。
-    - 若为 .raw/.dat：查找同名 .hdr 再加载。
+    - 若为 .hdr：直接按该头文件查找同名 .raw/.dat/.data 并加载。
+    - 若为 .raw/.dat/.data：查找同名 .hdr 再加载。
 
     Returns:
         (data_array, header_dict)，数组形状为 (lines, samples, bands)。
@@ -287,16 +296,16 @@ def read_envi(file_path: str) -> tuple[np.ndarray, dict[str, Any]]:
     low = file_path.lower()
     if low.endswith(".hdr"):
         return load_envi_dataset(file_path)
-    if low.endswith(".raw") or low.endswith(".dat"):
-        base = file_path[:-4]
+    if low.endswith(".raw") or low.endswith(".dat") or low.endswith(".data"):
+        base = file_path[: -len(os.path.splitext(file_path)[1])]
         hdr_path = base + ".hdr"
         if not os.path.isfile(hdr_path):
             raise EnviError(
-                "未找到对应的 .hdr 文件，请确认文件名与 .raw 一致。"
+                "未找到对应的 .hdr 文件，请确认文件名与数据文件一致。"
                 f" 尝试路径: {hdr_path!r}"
             )
         return load_envi_dataset(hdr_path)
-    raise EnviError(f"不支持的文件扩展名，请使用 .hdr 或 .raw/.dat: {file_path!r}")
+    raise EnviError(f"不支持的文件扩展名，请使用 .hdr 或 .raw/.dat/.data: {file_path!r}")
 
 
 # ---------------------------------------------------------------------------
