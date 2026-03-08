@@ -1372,35 +1372,76 @@ class VisualizationPage(QWidget):
 
     # ---------- 数据 & 显示 ----------
     def on_data_changed(self, arr: np.ndarray) -> None:
+        """
+        当 DataManager 中的数据更新时（包括首次加载 / 辐射定标 / 大气校正），
+        根据情况决定是否重置视图：
+        - 若是「新数据」（形状与之前不同或之前无数据），重置波段选择与显示模式；
+        - 若是「同一数据的更新」（例如辐射定标、大气校正），保留当前波段、假彩色/单波段模式
+          以及已选中的像素位置，并实时更新图像与光谱曲线。
+        """
+        old_data = self.data
+        old_shape = None if old_data is None else tuple(old_data.shape)
+        new_shape = tuple(arr.shape)
+        same_shape = old_shape == new_shape and old_shape is not None
+
+        # 更新数据与形状标签
         self.data = arr
         h, w, b = arr.shape
         self.info_label.setText(f"数据已加载：形状 (H, W, B) = ({h}, {w}, {b})")
 
-        self.band_combo.blockSignals(True)
-        self.band_combo.clear()
-        for i in range(b):
-            self.band_combo.addItem(f"波段 {i}")
-        self.band_combo.setCurrentIndex(0)
-        self.band_combo.blockSignals(False)
-
-        for combo in (self.combo_r, self.combo_g, self.combo_b):
-            combo.blockSignals(True)
-            combo.clear()
+        if not same_shape:
+            # 视为新数据：重新构建波段列表与假彩色下拉框，重置到单波段第 0 波段
+            self.band_combo.blockSignals(True)
+            self.band_combo.clear()
             for i in range(b):
-                combo.addItem(f"波段 {i}")
-            combo.setCurrentIndex(min(0, max(0, b - 1)))
-            combo.blockSignals(False)
+                self.band_combo.addItem(f"波段 {i}")
+            self.band_combo.setCurrentIndex(0)
+            self.band_combo.blockSignals(False)
 
-        self.current_band = 0
-        if self.cbar is not None:
-            try:
-                self.cbar.remove()
-            except Exception:
-                pass
-            self.cbar = None
-        self.img_artist = None
-        self._display_mode = "single_band"
+            for combo in (self.combo_r, self.combo_g, self.combo_b):
+                combo.blockSignals(True)
+                combo.clear()
+                for i in range(b):
+                    combo.addItem(f"波段 {i}")
+                combo.setCurrentIndex(min(0, max(0, b - 1)))
+                combo.blockSignals(False)
+
+            self.current_band = 0
+            # 新数据时重置颜色条与图像 artist，交给 update_image 重建
+            if self.cbar is not None:
+                try:
+                    self.cbar.remove()
+                except Exception:
+                    pass
+                self.cbar = None
+            self.img_artist = None
+            self._display_mode = "single_band"
+        else:
+            # 同形状数据（例如辐射定标 / 大气校正）：
+            # 保留当前波段与假彩色模式，仅保证索引不越界
+            b_old = old_shape[2]  # type: ignore[index]
+            if self.current_band >= b:
+                self.current_band = max(0, b - 1)
+            r, g, b_idx = self._rgb_bands
+            self._rgb_bands = (
+                min(r, b - 1),
+                min(g, b - 1),
+                min(b_idx, b - 1),
+            )
+
+        # 根据当前显示模式刷新图像
         self.update_image()
+
+        # 若之前选中过像素，则在新数据上同步更新光谱曲线
+        if (
+            self._last_spectrum_row is not None
+            and self._last_spectrum_col is not None
+            and 0 <= self._last_spectrum_row < h
+            and 0 <= self._last_spectrum_col < w
+        ):
+            self.update_spectrum(self._last_spectrum_row, self._last_spectrum_col)
+
+        # 首次或新数据加载后，稍作延时以确保布局稳定
         QTimer.singleShot(50, self._deferred_layout)
 
     def _deferred_layout(self) -> None:
