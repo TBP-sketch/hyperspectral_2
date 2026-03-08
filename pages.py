@@ -136,8 +136,8 @@ class SingleAxesCanvas(FigureCanvas):
         self.setParent(parent)
 
     def resizeEvent(self, event: Any) -> None:
+        """在尺寸变化时请求重绘，避免反复启用 constrained_layout 导致画布抖动。"""
         super().resizeEvent(event)
-        self.fig.set_constrained_layout(True)
         self.draw_idle()
 
 
@@ -266,7 +266,7 @@ class DataLoadPage(QWidget):
         layout.addWidget(file_group)
 
         # 可选：数据格式转换为 ENVI 的入口
-        btn_convert = QPushButton("数据格式转换为 ENVI...")
+        btn_convert = QPushButton("导出为ENVI格式")
         btn_convert.clicked.connect(self.open_convert_dialog)
         layout.addWidget(btn_convert)
 
@@ -840,7 +840,7 @@ class ExportPage(QWidget):
         layout.addWidget(path_group)
 
         # === 转换工具入口（复用 ConvertDialog） ===
-        btn_convert = QPushButton("打开“数据格式转换为 ENVI”工具...")
+        btn_convert = QPushButton("导出为ENVI格式")
         btn_convert.clicked.connect(self.open_convert_dialog)
         layout.addWidget(btn_convert)
 
