@@ -127,16 +127,17 @@ class DataManager(QObject):
 
 # ---------- Matplotlib 画布 ----------
 class SingleAxesCanvas(FigureCanvas):
-    """单子图画布，用于 QSplitter 中独立布局，防止标题重叠。"""
+    """单子图画布，用于 QSplitter 中独立布局，避免布局抖动。"""
 
     def __init__(self, parent: Optional[QWidget] = None, figsize: tuple[float, float] = (4, 4)) -> None:
-        self.fig = Figure(figsize=figsize, dpi=100, constrained_layout=True)
+        # 禁用 constrained_layout，避免 Matplotlib 与 Qt 布局互相“拉扯”导致画布尺寸抖动
+        self.fig = Figure(figsize=figsize, dpi=100, constrained_layout=False)
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
 
     def resizeEvent(self, event: Any) -> None:
-        """在尺寸变化时请求重绘，避免反复启用 constrained_layout 导致画布抖动。"""
+        """仅在尺寸变化时请求重绘，不再触发布局模式切换。"""
         super().resizeEvent(event)
         self.draw_idle()
 
@@ -1045,6 +1046,10 @@ class VisualizationPage(QWidget):
         # 当前点击像素，用于光谱曲线与标注
         self._last_spectrum_row: Optional[int] = None
         self._last_spectrum_col: Optional[int] = None
+        # 光谱是否已“锁定”：
+        # - False：左侧图像上移动鼠标实时更新光谱；
+        # - True：固定在最近一次点击的位置，移动鼠标不再更新。
+        self._spectrum_locked: bool = False
 
         self._init_ui()
 
@@ -1301,19 +1306,37 @@ class VisualizationPage(QWidget):
             self._pan_start = None
 
     def _on_motion(self, event: Any) -> None:
-        """拖拽平移：中键或右键拖动时平移当前轴。"""
-        if not self._panning or event.inaxes is None or event.xdata is None or event.ydata is None:
+        """
+        鼠标移动事件：
+        - 若处于平移模式（_panning=True），中/右键或平移状态下的左键拖动用于平移当前轴；
+        - 否则，在左侧图像上移动鼠标且未锁定光谱时，实时更新右侧光谱曲线。
+        """
+        if event.inaxes is None or event.xdata is None or event.ydata is None:
             return
-        if self._pan_start is None:
+
+        # 1. 平移逻辑
+        if self._panning:
+            if self._pan_start is None:
+                return
+            dx = event.xdata - self._pan_start[0]
+            dy = event.ydata - self._pan_start[1]
+            ax = event.inaxes
+            ax.set_xlim(ax.get_xlim() - dx)
+            ax.set_ylim(ax.get_ylim() - dy)
+            self._pan_start = (event.xdata, event.ydata)
+            self.canvas_img.draw_idle()
+            self.canvas_spec.draw_idle()
             return
-        dx = event.xdata - self._pan_start[0]
-        dy = event.ydata - self._pan_start[1]
-        ax = event.inaxes
-        ax.set_xlim(ax.get_xlim() - dx)
-        ax.set_ylim(ax.get_ylim() - dy)
-        self._pan_start = (event.xdata, event.ydata)
-        self.canvas_img.draw_idle()
-        self.canvas_spec.draw_idle()
+
+        # 2. 实时光谱预览：仅在左侧图像轴上、未锁定、且已有数据时生效
+        if (
+            self.data is not None
+            and not self._spectrum_locked
+            and event.inaxes == self.canvas_img.ax
+        ):
+            col = int(event.xdata + 0.5)
+            row = int(event.ydata + 0.5)
+            self.update_spectrum(row, col)
 
     def _apply_false_color(self) -> None:
         """根据 R/G/B 波段选择生成假彩色图并显示。"""
@@ -1585,5 +1608,12 @@ class VisualizationPage(QWidget):
             return
         col = int(event.xdata + 0.5)
         row = int(event.ydata + 0.5)
-        self.update_spectrum(row, col)
+        # 单击行为：在“实时预览”和“锁定当前像素”之间切换
+        if not self._spectrum_locked:
+            # 由预览切换为锁定：固定当前像素的光谱
+            self._spectrum_locked = True
+            self.update_spectrum(row, col)
+        else:
+            # 再次单击：取消锁定，右侧光谱重新随鼠标移动实时变化
+            self._spectrum_locked = False
 
