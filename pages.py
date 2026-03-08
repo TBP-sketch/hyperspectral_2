@@ -336,20 +336,8 @@ class DataLoadPage(QWidget):
                     )
 
                 arr, header = read_envi(file_path)
-
-                interleave = str(header.get("interleave", "")).strip().lower()
-                if interleave == "bsq":
-                    cube = np.transpose(arr, (1, 2, 0))
-                elif interleave == "bil":
-                    cube = np.transpose(arr, (0, 2, 1))
-                elif interleave == "bip":
-                    cube = arr
-                else:
-                    raise ValueError(
-                        f"不支持的数据排列方式：{interleave!r}（期望 bsq/bil/bip）"
-                    )
-
-                data = cube.astype(np.float32)
+                # read_envi 已统一返回 (lines, samples, bands) = (H, W, B)
+                data = arr.astype(np.float32)
 
             elif file_path.lower().endswith(".h5") or file_path.lower().endswith(
                 ".hdf5"
