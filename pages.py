@@ -25,6 +25,7 @@ from matplotlib.ticker import MaxNLocator, ScalarFormatter
 from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal, QThread, QTimer
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -315,6 +316,19 @@ class DataLoadPage(QWidget):
         if not file_path:
             return
 
+        # 模态忙碌对话框：数据加载中
+        progress = QDialog(self)
+        progress.setWindowTitle("加载数据")
+        progress.setModal(True)
+        layout = QVBoxLayout(progress)
+        label = QLabel("数据加载中，请稍后~", progress)
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+        progress.setFixedSize(260, 90)
+        progress.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+        progress.show()
+        QApplication.processEvents()
+
         try:
             if file_path.lower().endswith(".npy"):
                 arr = np.load(file_path)
@@ -395,6 +409,8 @@ class DataLoadPage(QWidget):
                 )
 
         except Exception as e:
+            progress.close()
+            QApplication.processEvents()
             msg = str(e)
             if "不支持的文件格式" in msg:
                 ui_msg = "当前格式暂不支持"
@@ -408,6 +424,10 @@ class DataLoadPage(QWidget):
             QMessageBox.critical(self, "加载高光谱数据失败", ui_msg)
             self.info_label.setText("未加载数据")
             return
+
+        # 成功加载后关闭对话框
+        progress.close()
+        QApplication.processEvents()
 
         # 广播数据
         self.data_manager.set_data(data)
@@ -921,6 +941,19 @@ class ExportPage(QWidget):
         self.progress_bar.setVisible(True)
         self._append_log("开始导出...")
 
+        # 模态忙碌对话框：文件导出中
+        progress = QDialog(self)
+        progress.setWindowTitle("导出文件")
+        progress.setModal(True)
+        layout = QVBoxLayout(progress)
+        label = QLabel("文件导出中，请稍后~", progress)
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+        progress.setFixedSize(260, 90)
+        progress.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
+        progress.show()
+        QApplication.processEvents()
+
         try:
             # 1. ENVI 导出
             if self.chk_envi.isChecked():
@@ -944,6 +977,8 @@ class ExportPage(QWidget):
             self._append_log(f"导出失败：{e}", QColor(200, 0, 0))
             QMessageBox.critical(self, "导出失败", f"导出过程中发生错误：\n{e}")
         finally:
+            progress.close()
+            QApplication.processEvents()
             self.progress_bar.setVisible(False)
 
     # ---------- 具体导出实现 ----------
