@@ -33,13 +33,6 @@ except Exception:  # 防御：避免导入失败导致整个 GUI 无法启动
     EnviError = Exception  # type: ignore
     read_envi = None  # type: ignore
 
-# HDF5 高光谱数据读取支持（.h5 / .hdf5）
-try:
-    from hdf5_reader import HDF5Error, read_hdf5_hypercube
-except Exception:  # 同样防御，避免导入失败直接中断 GUI
-    HDF5Error = Exception  # type: ignore
-    read_hdf5_hypercube = None  # type: ignore
-
 # 数据格式转换对话框（ConvertDialog）
 try:
     from convert_dialog import ConvertDialog
@@ -319,15 +312,13 @@ class HyperSpectralViewer(QMainWindow):
         """
         支持格式：
         - .npy: 直接加载为 (H, W, B)
-        - .raw: 原始二进制文件，需要用户输入参数（高度、宽度、波段数、数据类型等）
         - .hdr: ENVI 标准格式头文件（自动在同目录下寻找同主名数据文件）
-        - .h5 / .hdf5: HDF5 高光谱数据文件（自动搜索反射率数据集与元数据）
         """
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "选择高光谱数据文件",
             "",
-            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;HDF5 文件 (*.h5 *.hdf5);;RAW 文件 (*.raw);;所有文件 (*.*)",
+            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;所有文件 (*.*)",
         )
         if not file_path:
             return
@@ -371,32 +362,10 @@ class HyperSpectralViewer(QMainWindow):
 
                 self.data = cube.astype(np.float32)
 
-            elif file_path.lower().endswith(".h5") or file_path.lower().endswith(".hdf5"):
-                # HDF5 高光谱数据文件
-                if read_hdf5_hypercube is None:
-                    raise ImportError(
-                        "HDF5 读取模块不可用（hdf5_reader.py 导入失败或未安装 h5py）。"
-                    )
-
-                cube, info = read_hdf5_hypercube(file_path)
-                self.data = cube.astype(np.float32)
-                self.envi_header = None
-                self.hdf5_info = info
-
-            elif file_path.lower().endswith(".raw"):
-                # RAW 文件：弹出参数对话框
-                dialog = RawFileDialog(self)
-                if dialog.exec_() == QDialog.Accepted:
-                    params = dialog.get_params()
-                    arr = self.load_raw_file(file_path, params)
-                    self.data = arr.astype(np.float32)
-                    self.envi_header = None
-                    self.hdf5_info = None
-                else:
-                    return  # 用户取消了对话框
-
             else:
-                raise ValueError("不支持的文件格式。支持格式：.npy, .raw, .hdr(ENVI), .h5/.hdf5(HDF5)")
+                raise ValueError(
+                    "不支持的文件格式。支持格式：.npy, .hdr(ENVI)"
+                )
 
         except Exception as e:
             # 统一的错误处理入口：使用弹窗提示错误信息，而不是直接写在界面标签上

@@ -64,16 +64,11 @@ rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS"]
 rcParams["axes.unicode_minus"] = False
 
 
-# ---------- 依赖模块（ENVI / HDF5 / 转换对话框） ----------
+# ---------- 依赖模块（ENVI / 转换对话框） ----------
 try:
     from envi_reader import read_envi
 except Exception:  # 若导入失败，相关功能会在运行时报友好错误
     read_envi = None  # type: ignore
-
-try:
-    from hdf5_reader import read_hdf5_hypercube
-except Exception:
-    read_hdf5_hypercube = None  # type: ignore
 
 try:
     from convert_dialog import ConvertDialog
@@ -238,7 +233,7 @@ class DataLoadPage(QWidget):
     """
     数据读取页面：负责选择并加载高光谱数据文件。
 
-    - 支持 .npy / .raw / .hdr(ENVI) / .h5/.hdf5(HDF5)
+    - 支持 .npy / .hdr(ENVI) / .mat(MATLAB)
     - 读取成功后，通过 DataManager 将 numpy 数组广播给其他页面
     """
 
@@ -289,7 +284,7 @@ class DataLoadPage(QWidget):
             self,
             "选择高光谱数据文件",
             "",
-            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;HDF5 文件 (*.h5 *.hdf5);;RAW 文件 (*.raw);;MATLAB Files (*.mat);;所有文件 (*.*)",
+            "NumPy 数组 (*.npy);;ENVI 头文件 (*.hdr);;MATLAB Files (*.mat);;所有文件 (*.*)",
         )
         if not path:
             return
@@ -338,24 +333,6 @@ class DataLoadPage(QWidget):
                 arr, header = read_envi(file_path)
                 # read_envi 已统一返回 (lines, samples, bands) = (H, W, B)
                 data = arr.astype(np.float32)
-
-            elif file_path.lower().endswith(".h5") or file_path.lower().endswith(
-                ".hdf5"
-            ):
-                if read_hdf5_hypercube is None:
-                    raise ImportError(
-                        "HDF5 读取模块不可用（hdf5_reader.py 导入失败或未安装 h5py）。"
-                    )
-                cube, _info = read_hdf5_hypercube(file_path)
-                data = cube.astype(np.float32)
-
-            elif file_path.lower().endswith(".raw"):
-                dialog = RawFileDialog(self)
-                if dialog.exec_() == QDialog.Accepted:
-                    params = dialog.get_params()
-                    data = self._load_raw_file(file_path, params).astype(np.float32)
-                else:
-                    return
 
             elif file_path.lower().endswith(".mat"):
                 # MATLAB .mat：可能是 v7（scipy.io.loadmat）或 v7.3（HDF5）
@@ -413,7 +390,7 @@ class DataLoadPage(QWidget):
 
             else:
                 raise ValueError(
-                    "不支持的文件格式。支持格式：.npy, .raw, .hdr(ENVI), .h5/.hdf5(HDF5)"
+                    "不支持的文件格式。支持格式：.npy, .hdr(ENVI), .mat(MATLAB)"
                 )
 
         except Exception as e:
