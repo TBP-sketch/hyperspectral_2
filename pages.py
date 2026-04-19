@@ -4,7 +4,7 @@ from __future__ import annotations
 页面模块：包含四个功能页：
 - DataLoadPage       ：数据读取
 - PreprocessPage     ：预处理（占位）
-- ExportPage         ：导出（占位）
+- ExportPage         ：导出（ENVI / CSV / GeoTIFF）
 - VisualizationPage  ：可视化
 
 以及简单的数据管理器 DataManager，用于在页面间共享高光谱数据。
@@ -800,7 +800,7 @@ class PreprocessPage(QWidget):
 class ExportPage(QWidget):
     """
     导出模块：
-    - 将当前高光谱数据立方体导出为 ENVI / CSV（GeoTIFF 入口预留）；
+    - 将当前高光谱数据立方体导出为 ENVI / CSV / GeoTIFF；
     - 支持导出全图或当前选中像素的光谱曲线。
     """
 
@@ -828,8 +828,7 @@ class ExportPage(QWidget):
         self.chk_envi = QCheckBox("ENVI（.hdr + .dat）")
         self.chk_envi.setChecked(True)
         self.chk_csv = QCheckBox("CSV")
-        self.chk_geotiff = QCheckBox("GeoTIFF（预留，暂未实现）")
-        self.chk_geotiff.setEnabled(False)
+        self.chk_geotiff = QCheckBox("GeoTIFF（.tif）")
         fmt_layout.addWidget(self.chk_envi)
         fmt_layout.addWidget(self.chk_csv)
         fmt_layout.addWidget(self.chk_geotiff)
@@ -967,9 +966,10 @@ class ExportPage(QWidget):
                 self._export_csv(output_stem)
                 self.progress_bar.setValue(80)
 
-            # 3. GeoTIFF（留空，预留位置）
+            # 3. GeoTIFF
             if self.chk_geotiff.isChecked():
-                self._append_log("GeoTIFF 导出暂未实现。", QColor(150, 100, 0))
+                self._append_log("导出 GeoTIFF 格式...")
+                self._export_geotiff(output_stem)
 
             self.progress_bar.setValue(100)
             QMessageBox.information(self, "导出完成", f"数据已成功导出到：\n{output_stem}.*")
@@ -1036,6 +1036,30 @@ class ExportPage(QWidget):
             arr = np.column_stack([x, y])
             np.savetxt(csv_path, arr, delimiter=",", header=header, comments="")
             self._append_log(f"CSV 光谱曲线导出完成：{csv_path}")
+
+    def _export_geotiff(self, output_stem: str) -> None:
+        """
+        使用 geotiff_writer 写出 GeoTIFF（依赖 rasterio）。
+        - 全图：多波段 H×W；
+        - 单像素光谱：B 波段、1×1 空间尺寸。
+        """
+        from geotiff_writer import write_geotiff_cube, write_geotiff_spectrum
+
+        if self.data_cube is None:
+            raise RuntimeError("没有可导出的数据立方体。")
+
+        wl = self.data_manager.wavelengths
+
+        if self.radio_full.isChecked():
+            tif_path = write_geotiff_cube(output_stem, self.data_cube, wavelengths_nm=wl)
+            self._append_log(f"GeoTIFF 全图导出完成：{tif_path}")
+        else:
+            if self.current_spectrum is None:
+                raise RuntimeError("当前未选中任何像素，无法导出光谱曲线。")
+            tif_path = write_geotiff_spectrum(
+                output_stem, self.current_spectrum, wavelengths_nm=wl
+            )
+            self._append_log(f"GeoTIFF 光谱曲线导出完成：{tif_path}")
 
     # ---------- 转换工具入口 ----------
     def open_convert_dialog(self) -> None:

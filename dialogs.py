@@ -107,7 +107,7 @@ HELP_HTML = """
 <h3>3. 导出</h3>
 <p>在 <b>💾 导出</b> 中可选择：</p>
 <ul>
-  <li>导出为 <b>ENVI</b>（.hdr + .dat）或 <b>CSV</b>；</li>
+  <li>导出为 <b>ENVI</b>（.hdr + .dat）、<b>CSV</b> 或 <b>GeoTIFF</b>（.tif）；</li>
   <li>范围可选「全图」或「当前选中像素的光谱曲线」；</li>
   <li>也可打开「数据格式转换为 ENVI」工具，将 GeoTIFF/ HDF/ 二进制转为 ENVI。</li>
 </ul>
