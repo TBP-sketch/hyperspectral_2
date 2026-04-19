@@ -12,6 +12,9 @@ from __future__ import annotations
 左侧使用 QListWidget 作为导航，右侧使用 QStackedWidget 作为主工作区。
 顶部包含 QMenuBar / QToolBar，底部包含 QStatusBar。
 支持全局快捷键与深色/浅色主题切换。
+
+界面样式由 style.qss / style_dark.qss 提供；主要操作按钮需设置 objectName 为
+「primaryButton」，浏览/关闭等次要按钮为「secondaryButton」（见各页面中的 QPushButton）。
 """
 
 import os
@@ -19,7 +22,7 @@ import sys
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QKeySequence
+from PyQt5.QtGui import QKeySequence, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -34,6 +37,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app_background import load_background_pixmap, paint_background_cover
 from pages import DataManager, DataLoadPage, ExportPage, PreprocessPage, VisualizationPage
 
 try:
@@ -48,6 +52,9 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("高光谱数据处理平台")
         self.resize(1200, 720)
+        self.setAutoFillBackground(False)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._background_pixmap: QPixmap = load_background_pixmap()
 
         # 主题：False=浅色，True=深色
         self._dark_theme = False
@@ -70,11 +77,16 @@ class MainWindow(QMainWindow):
     # ---------- 中心区域：左侧导航 + 右侧工作区 ----------
     def _init_central_widgets(self) -> None:
         central = QWidget(self)
+        central.setObjectName("centralWorkspace")
+        central.setAttribute(Qt.WA_TranslucentBackground, True)
+        central.setStyleSheet("#centralWorkspace { background: transparent; }")
         self.setCentralWidget(central)
 
         from PyQt5.QtWidgets import QHBoxLayout
 
         main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
         # 左侧导航栏
         self.nav_list = QListWidget()
@@ -93,6 +105,7 @@ class MainWindow(QMainWindow):
 
         # 右侧工作区：QStackedWidget
         self.stack = QStackedWidget()
+        self.stack.setObjectName("mainStack")
 
         self.page_data_load = DataLoadPage(self.data_manager, self)
         self.page_preprocess = PreprocessPage(self.data_manager, self)
@@ -109,6 +122,20 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.stack, 1)
 
         self.nav_list.setCurrentRow(0)
+
+    def paintEvent(self, event) -> None:
+        """整窗绘制背景图（菜单栏 / 工具栏 / 客户区均可见）。"""
+        painter = QPainter(self)
+        paint_background_cover(
+            painter,
+            self._background_pixmap,
+            0,
+            0,
+            self.width(),
+            self.height(),
+        )
+        painter.end()
+        super().paintEvent(event)
 
     def _add_nav_item(self, text: str, object_name: str) -> None:
         item = QListWidgetItem(text)

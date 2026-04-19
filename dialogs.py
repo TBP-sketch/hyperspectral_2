@@ -74,6 +74,7 @@ class AboutDialog(QDialog):
 
         # 确定按钮
         btn = QPushButton("确定")
+        btn.setObjectName("primaryButton")
         btn.clicked.connect(self.accept)
         layout.addWidget(btn)
 

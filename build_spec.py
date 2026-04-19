@@ -10,6 +10,7 @@
 datas = [
     ('style.qss', '.'),
     ('style_dark.qss', '.'),
+    ('assets/hyspec_background.png', 'assets'),
 ]
 # 若有 icons 目录：datas.append(('icons', 'icons'))
 

@@ -242,6 +242,9 @@ class DataLoadPage(QWidget):
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.data_manager = data_manager
+        self.setObjectName("modulePage")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
         self.info_label = QLabel("未加载数据")
         self.info_label.setWordWrap(True)
@@ -257,8 +260,10 @@ class DataLoadPage(QWidget):
 
         self.edit_path = QLineEdit()
         btn_browse = QPushButton("浏览...")
+        btn_browse.setObjectName("secondaryButton")
         btn_browse.clicked.connect(self.browse_file)
         btn_load = QPushButton("加载")
+        btn_load.setObjectName("primaryButton")
         btn_load.clicked.connect(self.load_current_file)
 
         file_layout.addWidget(self.edit_path, 1)
@@ -269,6 +274,7 @@ class DataLoadPage(QWidget):
 
         # 可选：数据格式转换为 ENVI 的入口
         btn_convert = QPushButton("导出为ENVI格式")
+        btn_convert.setObjectName("secondaryButton")
         btn_convert.clicked.connect(self.open_convert_dialog)
         layout.addWidget(btn_convert)
 
@@ -560,6 +566,9 @@ class PreprocessPage(QWidget):
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.data_manager = data_manager
+        self.setObjectName("modulePage")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
         # 当前数据立方体引用（形状 (H, W, B)），由 DataManager 提供
         self.data_cube: Optional[np.ndarray] = None
@@ -597,6 +606,7 @@ class PreprocessPage(QWidget):
         self._on_auto_calib_toggled(self.chk_auto_calib.isChecked())
 
         btn_apply_calib = QPushButton("应用定标")
+        btn_apply_calib.setObjectName("primaryButton")
         btn_apply_calib.clicked.connect(self.apply_radiometric_calibration)
         calib_layout.addWidget(btn_apply_calib)
 
@@ -636,6 +646,7 @@ class PreprocessPage(QWidget):
         atm_layout.addRow("气溶胶类型：", self.combo_aero_profile)
 
         btn_run_atm = QPushButton("执行大气校正")
+        btn_run_atm.setObjectName("primaryButton")
         btn_run_atm.clicked.connect(self.run_atmospheric_correction)
         from PyQt5.QtWidgets import QHBoxLayout
 
@@ -807,6 +818,9 @@ class ExportPage(QWidget):
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.data_manager = data_manager
+        self.setObjectName("modulePage")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
         # 缓存的当前数据与光谱
         self.data_cube: Optional[np.ndarray] = None
@@ -854,6 +868,7 @@ class ExportPage(QWidget):
         path_layout = QHBoxLayout(path_group)
         self.edit_path = QLineEdit()
         btn_browse = QPushButton("浏览...")
+        btn_browse.setObjectName("secondaryButton")
         btn_browse.clicked.connect(self.browse_output)
         path_layout.addWidget(self.edit_path, 1)
         path_layout.addWidget(btn_browse)
@@ -861,6 +876,7 @@ class ExportPage(QWidget):
 
         # === 转换工具入口（复用 ConvertDialog） ===
         btn_convert = QPushButton("导出为ENVI格式")
+        btn_convert.setObjectName("secondaryButton")
         btn_convert.clicked.connect(self.open_convert_dialog)
         layout.addWidget(btn_convert)
 
@@ -877,6 +893,7 @@ class ExportPage(QWidget):
 
         # === 执行按钮 ===
         btn_export = QPushButton("开始导出")
+        btn_export.setObjectName("primaryButton")
         btn_export.setMinimumHeight(40)
         btn_export.clicked.connect(self.start_export)
         layout.addWidget(btn_export)
@@ -1089,6 +1106,9 @@ class VisualizationPage(QWidget):
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.data_manager = data_manager
+        self.setObjectName("modulePage")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
         self.data: Optional[np.ndarray] = None  # (H, W, B)
         self.current_band: int = 0
@@ -1143,14 +1163,19 @@ class VisualizationPage(QWidget):
 
         custom_btn_row = QHBoxLayout()
         btn_clear_curve = QPushButton("清除曲线")
+        btn_clear_curve.setObjectName("secondaryButton")
         btn_clear_curve.clicked.connect(self._clear_spectrum_curve)
         btn_zoom_in = QPushButton("放大")
+        btn_zoom_in.setObjectName("secondaryButton")
         btn_zoom_in.clicked.connect(self._zoom_in)
         btn_zoom_out = QPushButton("缩小")
+        btn_zoom_out.setObjectName("secondaryButton")
         btn_zoom_out.clicked.connect(self._zoom_out)
         btn_reset = QPushButton("重置视图")
+        btn_reset.setObjectName("secondaryButton")
         btn_reset.clicked.connect(self._reset_view)
         btn_save = QPushButton("保存图像")
+        btn_save.setObjectName("primaryButton")
         btn_save.clicked.connect(self._save_figure)
 
         custom_btn_row.addWidget(btn_clear_curve)
@@ -1205,6 +1230,7 @@ class VisualizationPage(QWidget):
         fcc_layout.addRow("G 波段：", self.combo_g)
         fcc_layout.addRow("B 波段：", self.combo_b)
         btn_false_color = QPushButton("生成假彩色图")
+        btn_false_color.setObjectName("primaryButton")
         btn_false_color.clicked.connect(self._apply_false_color)
         fcc_layout.addRow(btn_false_color)
         controls.addWidget(fcc_group)
@@ -1253,7 +1279,9 @@ class VisualizationPage(QWidget):
         self._pan_mode_enabled = bool(checked)
         if self._pan_tool_btn is not None:
             if checked:
-                self._pan_tool_btn.setStyleSheet("QToolButton:checked { background-color: #a0a0a0; }")
+                self._pan_tool_btn.setStyleSheet(
+                    "QToolButton:checked { background-color: #1ABC9C; border-radius: 4px; }"
+                )
             else:
                 self._pan_tool_btn.setStyleSheet("")
         for c in (self.canvas_img, self.canvas_spec):
