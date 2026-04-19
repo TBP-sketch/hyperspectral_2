@@ -7,6 +7,7 @@
 QWidget {
     font-family: "Microsoft YaHei", "SimHei", sans-serif;
     font-size: 10pt;
+    font-weight: bold;
     color: #333333;
 }
 
@@ -419,13 +420,106 @@ QScrollBar::sub-line {
     height: 0;
 }
 
-/* ----- 对话框 ----- */
+/* ----- 对话框与 QMessageBox -----
+   QMessageBox 必须在 QLabel 上显式设置 background，否则在 Windows 下易出现整块纯黑。 */
 QDialog {
-    background-color: rgba(245, 246, 248, 0.94);
+    background-color: rgba(241, 245, 249, 0.97);
+    border: 1px solid rgba(203, 213, 225, 0.95);
+    border-radius: 8px;
+}
+
+QDialog QLabel {
+    color: #1E293B;
+    background-color: transparent;
+}
+
+QDialog QGroupBox {
+    background-color: rgba(255, 255, 255, 0.82);
+    border: 1px solid rgba(203, 213, 225, 0.9);
 }
 
 QDialogButtonBox QPushButton {
     min-width: 72px;
+}
+
+/* 与四模块按钮同系的灰蓝（slate） */
+QMessageBox {
+    background-color: #5A6B80;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 8px;
+}
+
+QMessageBox QLabel {
+    background-color: #5A6B80;
+    color: #F8FAFC;
+    border: none;
+}
+
+QMessageBox QLabel#qt_msgbox_label {
+    background-color: #5A6B80;
+    color: #F8FAFC;
+}
+
+QMessageBox QLabel#qt_msgbox_icon_label {
+    background-color: transparent;
+}
+
+QMessageBox QTextEdit,
+QMessageBox QPlainTextEdit {
+    background-color: #5A6B80;
+    color: #F8FAFC;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+QMessageBox QDialogButtonBox {
+    background-color: #5A6B80;
+    border: none;
+}
+
+QMessageBox QPushButton {
+    background-color: #6D7F95;
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.65);
+    border-radius: 6px;
+    padding: 6px 16px;
+    min-width: 80px;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #7D91A8;
+    border: 1px solid rgba(255, 255, 255, 0.85);
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: #4A5568;
+}
+
+QInputDialog {
+    background-color: rgba(241, 245, 249, 0.98);
+    border: 1px solid rgba(203, 213, 225, 0.95);
+    border-radius: 8px;
+}
+
+QInputDialog QLabel {
+    color: #1E293B;
+}
+
+QColorDialog,
+QFontDialog,
+QFileDialog {
+    background-color: rgba(241, 245, 249, 0.97);
+}
+
+QWidget#helpWindow {
+    background-color: rgba(241, 245, 249, 0.97);
+}
+
+QWidget#helpWindow QTextBrowser {
+    background-color: rgba(255, 255, 255, 0.94);
+    border: 1px solid rgba(203, 213, 225, 0.92);
+    border-radius: 6px;
+    color: #1E293B;
+    padding: 8px;
 }
 
 /* =============================================================================
@@ -434,25 +528,94 @@ QDialogButtonBox QPushButton {
 
 QWidget#modulePage {
     color: #FFFFFF;
+    font-weight: bold;
+    /* 不使用 WA_TranslucentBackground + 全透明，否则 Windows 下 QComboBox 弹出层会错位/只显示选中行 */
+    background-color: rgba(15, 23, 42, 0.88);
+    border-radius: 6px;
+}
+
+/* 预处理 / 导出：日志区加粗白字 */
+QTextEdit#moduleLogEdit {
+    color: #FFFFFF;
+    font-weight: bold;
+    background-color: rgba(15, 23, 42, 0.82);
+}
+
+/* 大气校正进度条：棕色填充（需高于全局 QProgressBar::chunk） */
+QWidget#modulePage QProgressBar#atmProgressBar::chunk {
+    background-color: #8B5A2B;
+    border-radius: 3px;
 }
 
 QWidget#modulePage QLabel {
     color: #FFFFFF;
+    font-weight: bold;
 }
 
 QWidget#modulePage QCheckBox,
 QWidget#modulePage QRadioButton {
     color: #FFFFFF;
+    font-weight: bold;
+    spacing: 8px;
+}
+
+/* 复选框：避免白底 + 浅灰勾；未选深底白边，选中深青绿底白边，勾由样式引擎以亮色绘制 */
+QWidget#modulePage QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+}
+
+QWidget#modulePage QCheckBox::indicator:unchecked {
+    background-color: rgba(30, 41, 59, 0.98);
+    border: 2px solid rgba(255, 255, 255, 0.92);
+    border-radius: 4px;
+}
+
+QWidget#modulePage QCheckBox::indicator:checked {
+    background-color: #0D9488;
+    border: 2px solid #FFFFFF;
+    border-radius: 4px;
+}
+
+QWidget#modulePage QCheckBox::indicator:disabled {
+    background-color: rgba(51, 65, 85, 0.6);
+    border: 2px solid rgba(148, 163, 184, 0.5);
+}
+
+/* 单选：未选深底白边；选中实心深青 + 白边，圆点对比清晰 */
+QWidget#modulePage QRadioButton::indicator {
+    width: 18px;
+    height: 18px;
+}
+
+QWidget#modulePage QRadioButton::indicator:unchecked {
+    background-color: rgba(30, 41, 59, 0.98);
+    border: 2px solid rgba(255, 255, 255, 0.92);
+    border-radius: 9px;
+}
+
+QWidget#modulePage QRadioButton::indicator:checked {
+    background-color: #0F766E;
+    border: 3px solid #FFFFFF;
+    border-radius: 9px;
+}
+
+QWidget#modulePage QRadioButton::indicator:disabled {
+    background-color: rgba(51, 65, 85, 0.6);
+    border: 2px solid rgba(148, 163, 184, 0.5);
 }
 
 QWidget#modulePage QGroupBox {
     color: #FFFFFF;
+    font-weight: bold;
     background-color: rgba(15, 23, 42, 0.78);
-    border: 1px solid rgba(148, 163, 184, 0.65);
+    border: 2px solid rgba(255, 255, 255, 0.92);
+    border-radius: 8px;
 }
 
 QWidget#modulePage QGroupBox::title {
     color: #FFFFFF;
+    font-weight: bold;
     background-color: rgba(15, 23, 42, 0.92);
     padding: 2px 8px;
 }
@@ -462,8 +625,9 @@ QWidget#modulePage QComboBox,
 QWidget#modulePage QSpinBox,
 QWidget#modulePage QDoubleSpinBox {
     color: #FFFFFF;
+    font-weight: bold;
     background-color: rgba(30, 41, 59, 0.92);
-    border: 1px solid #94A3B8;
+    border: 2px solid rgba(255, 255, 255, 0.65);
     selection-background-color: #0D9488;
     selection-color: #FFFFFF;
 }
@@ -478,111 +642,138 @@ QWidget#modulePage QComboBox QAbstractItemView {
     color: #FFFFFF;
     selection-background-color: #0F766E;
     selection-color: #FFFFFF;
+    outline: none;
+    padding: 2px;
+}
+
+QWidget#modulePage QComboBox QAbstractItemView::item {
+    min-height: 26px;
+    padding: 4px 10px;
+    color: #F8FAFC;
+    background-color: rgba(15, 23, 42, 1);
+}
+
+QWidget#modulePage QComboBox QAbstractItemView::item:selected {
+    background-color: #0F766E;
+    color: #FFFFFF;
+}
+
+QWidget#modulePage QComboBox QAbstractItemView::item:hover {
+    background-color: rgba(16, 118, 110, 0.55);
+    color: #FFFFFF;
 }
 
 QWidget#modulePage QTextEdit,
 QWidget#modulePage QPlainTextEdit {
     color: #FFFFFF;
+    font-weight: bold;
     background-color: rgba(15, 23, 42, 0.82);
-    border: 1px solid #94A3B8;
+    border: 2px solid rgba(255, 255, 255, 0.65);
     selection-background-color: #0D9488;
     selection-color: #FFFFFF;
 }
 
 QWidget#modulePage QProgressBar {
     color: #FFFFFF;
+    font-weight: bold;
     background-color: rgba(30, 41, 59, 0.85);
-    border: 1px solid #64748B;
+    border: 2px solid rgba(255, 255, 255, 0.65);
 }
 
 QWidget#modulePage QSlider::groove:horizontal {
     background: rgba(71, 85, 105, 0.85);
-    border: 1px solid #64748B;
+    border: 2px solid rgba(255, 255, 255, 0.55);
 }
 
+/* 四模块内按钮：统一灰蓝（slate）系，与半透明背景图协调 */
 QWidget#modulePage QPushButton {
-    background-color: rgba(30, 41, 59, 0.75);
+    background-color: #5A6B80;
     color: #FFFFFF;
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    font-weight: bold;
+    border: 2px solid rgba(255, 255, 255, 0.55);
 }
 
 QWidget#modulePage QPushButton:hover {
-    background-color: rgba(51, 65, 85, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.55);
+    background-color: #6D7F95;
+    border: 2px solid rgba(255, 255, 255, 0.75);
     color: #FFFFFF;
 }
 
 QWidget#modulePage QPushButton:pressed {
-    background-color: rgba(15, 23, 42, 0.95);
-    border: 1px solid #FFFFFF;
+    background-color: #3E4A5C;
+    border: 2px solid rgba(255, 255, 255, 0.92);
     padding-top: 9px;
     padding-bottom: 7px;
 }
 
 QWidget#modulePage QPushButton:disabled {
     color: #94A3B8;
-    background-color: rgba(30, 41, 59, 0.45);
-    border-color: #475569;
+    background-color: rgba(90, 107, 128, 0.45);
+    border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* 主操作：同系略深的灰蓝，仍与整体一致 */
 QWidget#modulePage QPushButton#primaryButton {
-    background-color: #27AE60;
+    background-color: #4A6078;
     color: #FFFFFF;
-    border: 1px solid #FFFFFF;
+    border: 2px solid rgba(255, 255, 255, 0.85);
 }
 
 QWidget#modulePage QPushButton#primaryButton:hover {
-    background-color: #2ECC71;
+    background-color: #5A7390;
     color: #FFFFFF;
-    border: 1px solid #FFFFFF;
+    border: 2px solid rgba(255, 255, 255, 0.95);
 }
 
 QWidget#modulePage QPushButton#primaryButton:pressed {
-    background-color: #1E8449;
-    border: 1px solid #FFFFFF;
+    background-color: #3A4F63;
+    border: 2px solid #FFFFFF;
     padding-top: 9px;
     padding-bottom: 7px;
 }
 
 QWidget#modulePage QPushButton#secondaryButton {
-    background-color: rgba(30, 41, 59, 0.92);
+    background-color: #5A6B80;
     color: #FFFFFF;
-    border: 1px solid #CBD5E1;
+    border: 2px solid rgba(255, 255, 255, 0.55);
 }
 
 QWidget#modulePage QPushButton#secondaryButton:hover {
-    background-color: rgba(51, 65, 85, 0.88);
-    border: 1px solid rgba(255, 255, 255, 0.55);
+    background-color: #6D7F95;
+    border: 2px solid rgba(255, 255, 255, 0.75);
     color: #FFFFFF;
 }
 
 QWidget#modulePage QPushButton#secondaryButton:pressed {
-    background-color: rgba(15, 23, 42, 0.95);
-    border: 1px solid #FFFFFF;
+    background-color: #3E4A5C;
+    border: 2px solid rgba(255, 255, 255, 0.92);
 }
 
 QWidget#modulePage QToolButton {
     color: #FFFFFF;
-    background-color: rgba(30, 41, 59, 0.75);
+    font-weight: bold;
+    background-color: #5A6B80;
+    border: 2px solid rgba(255, 255, 255, 0.45);
     border-radius: 4px;
 }
 
 QWidget#modulePage QToolButton:hover {
-    background-color: rgba(51, 65, 85, 0.9);
+    background-color: #6D7F95;
+    border: 2px solid rgba(255, 255, 255, 0.65);
     color: #FFFFFF;
 }
 
 QWidget#modulePage QToolButton:pressed {
-    background-color: rgba(15, 23, 42, 0.95);
-    border: 1px solid #FFFFFF;
+    background-color: #3E4A5C;
+    border: 2px solid rgba(255, 255, 255, 0.92);
 }
 
 QWidget#modulePage QToolButton:checked {
-    background-color: rgba(44, 62, 80, 0.88);
-    border: 1px solid #FFFFFF;
+    background-color: #4E5D70;
+    border: 2px solid rgba(255, 255, 255, 0.9);
 }
 
 QWidget#modulePage QToolButton:checked:hover {
-    background-color: rgba(52, 73, 94, 0.92);
-    border: 1px solid #FFFFFF;
+    background-color: #5F6F84;
+    border: 2px solid #FFFFFF;
 }

@@ -39,7 +39,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QInputDialog,
-    QMessageBox,
     QPushButton,
     QProgressBar,
     QRadioButton,
@@ -51,6 +50,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from ui_messages import dlg_critical, dlg_information, dlg_warning
+
 try:
     # MATLAB .mat 读取器（core/loader.py）
     from core.loader import load_mat_file, list_mat_cube_candidates
@@ -59,6 +60,13 @@ except Exception:
     list_mat_cube_candidates = None  # type: ignore
 
 matplotlib.use("Qt5Agg")
+
+
+def _configure_module_combo(cb: QComboBox) -> None:
+    """统一配置模块内下拉框，配合非透明模块背景，避免弹出层错位、项高度为 0。"""
+    cb.setMaxVisibleItems(24)
+    cb.view().setUniformItemSizes(True)
+
 
 # 全局字体与负号设置（与原 app 保持一致）
 rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS"]
@@ -240,8 +248,6 @@ class DataLoadPage(QWidget):
         super().__init__(parent)
         self.data_manager = data_manager
         self.setObjectName("modulePage")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
 
         self.info_label = QLabel("未加载数据")
         self.info_label.setWordWrap(True)
@@ -304,7 +310,7 @@ class DataLoadPage(QWidget):
     def load_current_file(self) -> None:
         path = self.edit_path.text().strip()
         if not path:
-            QMessageBox.warning(self, "提示", "请先选择要加载的文件。")
+            dlg_warning(self, "提示", "请先选择要加载的文件。")
             return
         self.load_file(path)
 
@@ -418,7 +424,7 @@ class DataLoadPage(QWidget):
             else:
                 ui_msg = f"加载失败：{msg}"
 
-            QMessageBox.critical(self, "加载高光谱数据失败", ui_msg)
+            dlg_critical(self, "加载高光谱数据失败", ui_msg)
             self.info_label.setText("未加载数据")
             return
 
@@ -536,8 +542,6 @@ class PreprocessPage(QWidget):
         super().__init__(parent)
         self.data_manager = data_manager
         self.setObjectName("modulePage")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
 
         # 当前数据立方体引用（形状 (H, W, B)），由 DataManager 提供
         self.data_cube: Optional[np.ndarray] = None
@@ -613,6 +617,8 @@ class PreprocessPage(QWidget):
 
         atm_layout.addRow("大气模式：", self.combo_atm_profile)
         atm_layout.addRow("气溶胶类型：", self.combo_aero_profile)
+        _configure_module_combo(self.combo_atm_profile)
+        _configure_module_combo(self.combo_aero_profile)
 
         btn_run_atm = QPushButton("执行大气校正")
         btn_run_atm.setObjectName("primaryButton")
@@ -628,13 +634,18 @@ class PreprocessPage(QWidget):
 
         # === 进度与日志 ===
         self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("atmProgressBar")
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
 
         self.text_log = QTextEdit()
+        self.text_log.setObjectName("moduleLogEdit")
         self.text_log.setReadOnly(True)
+        _f = self.text_log.font()
+        _f.setBold(True)
+        self.text_log.setFont(_f)
         layout.addWidget(self.text_log, 1)
 
         layout.addStretch(0)
@@ -658,8 +669,7 @@ class PreprocessPage(QWidget):
         if color is not None:
             self.text_log.setTextColor(color)
         else:
-            # 使用默认颜色
-            self.text_log.setTextColor(QColor(0, 0, 0))
+            self.text_log.setTextColor(QColor(255, 255, 255))
         self.text_log.append(message)
 
     def _on_auto_calib_toggled(self, checked: bool) -> None:
@@ -679,7 +689,7 @@ class PreprocessPage(QWidget):
         结果通过 DataManager 回写并通知其他模块（尤其是可视化模块）刷新。
         """
         if self.data_cube is None:
-            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            dlg_warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
             return
 
         cube = self.data_cube.astype(np.float32, copy=True)
@@ -697,7 +707,7 @@ class PreprocessPage(QWidget):
                 gain = float(self.edit_gain.text().strip())
                 offset = float(self.edit_offset.text().strip())
             except ValueError:
-                QMessageBox.warning(self, "参数错误", "请正确输入增益和偏移值（浮点数）。")
+                dlg_warning(self, "参数错误", "请正确输入增益和偏移值（浮点数）。")
                 return
             self._append_log(f"执行手动辐射定标：R = {gain} * DN + {offset}")
             cube = gain * cube + offset
@@ -713,10 +723,10 @@ class PreprocessPage(QWidget):
         启动大气校正工作线程，避免长时间计算阻塞 UI。
         """
         if self.data_cube is None:
-            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            dlg_warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
             return
         if self._atm_thread is not None:
-            QMessageBox.information(self, "正在处理", "已有大气校正任务在进行中，请稍候。")
+            dlg_information(self, "正在处理", "已有大气校正任务在进行中，请稍候。")
             return
 
         atm_profile = self.combo_atm_profile.currentText()
@@ -788,8 +798,6 @@ class ExportPage(QWidget):
         super().__init__(parent)
         self.data_manager = data_manager
         self.setObjectName("modulePage")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
 
         # 缓存的当前数据与光谱
         self.data_cube: Optional[np.ndarray] = None
@@ -851,7 +859,11 @@ class ExportPage(QWidget):
         layout.addWidget(self.progress_bar)
 
         self.text_log = QTextEdit()
+        self.text_log.setObjectName("moduleLogEdit")
         self.text_log.setReadOnly(True)
+        _ef = self.text_log.font()
+        _ef.setBold(True)
+        self.text_log.setFont(_ef)
         layout.addWidget(self.text_log, 1)
 
         # === 执行按钮 ===
@@ -876,7 +888,7 @@ class ExportPage(QWidget):
         if color is not None:
             self.text_log.setTextColor(color)
         else:
-            self.text_log.setTextColor(QColor(0, 0, 0))
+            self.text_log.setTextColor(QColor(255, 255, 255))
         self.text_log.append(message)
 
     # ---------- 路径选择 ----------
@@ -903,16 +915,16 @@ class ExportPage(QWidget):
         当前为同步导出，数据量较大时可进一步改为 QThread。
         """
         if self.data_cube is None:
-            QMessageBox.warning(self, "未加载数据", "当前没有可导出的高光谱数据。")
+            dlg_warning(self, "未加载数据", "当前没有可导出的高光谱数据。")
             return
 
         if not (self.chk_envi.isChecked() or self.chk_csv.isChecked() or self.chk_geotiff.isChecked()):
-            QMessageBox.warning(self, "未选择格式", "请至少选择一种导出格式。")
+            dlg_warning(self, "未选择格式", "请至少选择一种导出格式。")
             return
 
         output_stem = self.edit_path.text().strip()
         if not output_stem:
-            QMessageBox.warning(self, "路径未填写", "请先选择输出路径。")
+            dlg_warning(self, "路径未填写", "请先选择输出路径。")
             return
 
         # 初始化进度条
@@ -952,10 +964,10 @@ class ExportPage(QWidget):
                 self._export_geotiff(output_stem)
 
             self.progress_bar.setValue(100)
-            QMessageBox.information(self, "导出完成", f"数据已成功导出到：\n{output_stem}.*")
+            dlg_information(self, "导出完成", f"数据已成功导出到：\n{output_stem}.*")
         except Exception as e:
             self._append_log(f"导出失败：{e}", QColor(200, 0, 0))
-            QMessageBox.critical(self, "导出失败", f"导出过程中发生错误：\n{e}")
+            dlg_critical(self, "导出失败", f"导出过程中发生错误：\n{e}")
         finally:
             progress.close()
             QApplication.processEvents()
@@ -1059,8 +1071,6 @@ class VisualizationPage(QWidget):
         super().__init__(parent)
         self.data_manager = data_manager
         self.setObjectName("modulePage")
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setStyleSheet("background: transparent;")
 
         self.data: Optional[np.ndarray] = None  # (H, W, B)
         self.current_band: int = 0
@@ -1372,9 +1382,9 @@ class VisualizationPage(QWidget):
                         self.canvas_spec.figure.savefig(pdf, format="pdf", dpi=150, bbox_inches="tight")
                 else:
                     self._splitter.grab().save(path)
-                QMessageBox.information(self, "保存成功", f"已保存至：{path}")
+                dlg_information(self, "保存成功", f"已保存至：{path}")
             except Exception as e:
-                QMessageBox.critical(self, "保存失败", str(e))
+                dlg_critical(self, "保存失败", str(e))
 
     def _on_scroll(self, event: Any) -> None:
         """滚轮缩放：对当前鼠标所在轴进行缩放。"""
@@ -1447,7 +1457,7 @@ class VisualizationPage(QWidget):
     def _apply_false_color(self) -> None:
         """根据 R/G/B 波段选择生成假彩色图并显示。"""
         if self.data is None:
-            QMessageBox.warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
+            dlg_warning(self, "未加载数据", "请先在“数据读取”模块中加载数据。")
             return
         r_idx = self.combo_r.currentIndex()
         g_idx = self.combo_g.currentIndex()
@@ -1561,6 +1571,10 @@ class VisualizationPage(QWidget):
                 min(g, b - 1),
                 min(b_idx, b - 1),
             )
+
+        _configure_module_combo(self.band_combo)
+        for _cb in (self.combo_r, self.combo_g, self.combo_b):
+            _configure_module_combo(_cb)
 
         # 根据当前显示模式刷新图像
         self.update_image()

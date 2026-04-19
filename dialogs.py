@@ -135,15 +135,23 @@ HELP_HTML = """
 """
 
 
-class HelpWindow(QWidget):
+class HelpWindow(QDialog):
     """
     帮助窗口：使用 QTextBrowser 显示 HTML 格式的使用说明。
+    使用 QDialog 并带关闭按钮，确保在 Windows 下可正常关闭。
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self.setObjectName("helpWindow")
         self.setWindowTitle("使用帮助")
+        self.setModal(False)
         self.resize(560, 520)
+        self.setWindowFlags(
+            self.windowFlags()
+            | Qt.WindowCloseButtonHint
+            | Qt.WindowSystemMenuHint
+        )
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -151,4 +159,12 @@ class HelpWindow(QWidget):
         self.browser = QTextBrowser()
         self.browser.setOpenExternalLinks(False)
         self.browser.setHtml(HELP_HTML)
-        layout.addWidget(self.browser)
+        layout.addWidget(self.browser, 1)
+
+        row = QHBoxLayout()
+        row.addStretch(1)
+        btn_close = QPushButton("关闭")
+        btn_close.setObjectName("secondaryButton")
+        btn_close.clicked.connect(self.accept)
+        row.addWidget(btn_close)
+        layout.addLayout(row)

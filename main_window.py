@@ -33,6 +33,7 @@ from PyQt5.QtWidgets import (
     QStatusBar,
     QStackedWidget,
     QStyle,
+    QStyleFactory,
     QToolBar,
     QWidget,
 )
@@ -160,8 +161,11 @@ class MainWindow(QMainWindow):
         """应用主题（True=深色，False=浅色）。"""
         self._dark_theme = dark
         qss = self._qss_dark if dark else self._qss_light
-        if qss:
-            QApplication.instance().setStyleSheet(qss)
+        app = QApplication.instance()
+        if app is not None:
+            app.setProperty("hyperspectral_dark_theme", dark)
+            if qss:
+                app.setStyleSheet(qss)
 
     def _setup_shortcuts(self) -> None:
         """全局快捷键：Ctrl+O / Ctrl+S / Ctrl+Q / F1。"""
@@ -276,9 +280,11 @@ class MainWindow(QMainWindow):
             dlg = AboutDialog(self)
             dlg.exec_()
         else:
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "关于",
+            from ui_messages import dlg_information
+
+            dlg_information(
+                self,
+                "关于",
                 "高光谱数据处理平台 v1.0\n\n技术栈： Python, PyQt5, Matplotlib, Spectral",
             )
 
@@ -307,6 +313,13 @@ def load_qss(app: QApplication, qss_path: str) -> None:
 
 def main() -> None:
     app = QApplication(sys.argv)
+
+    # Windows 默认样式下 QMessageBox 常走原生绘制，全局 QSS 易不生效；统一 Fusion 以便样式可控
+    fusion = QStyleFactory.create("Fusion")
+    if fusion is not None:
+        app.setStyle(fusion)
+
+    app.setProperty("hyperspectral_dark_theme", False)
 
     # 加载外部样式表
     qss_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "style.qss")
