@@ -65,16 +65,11 @@ rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Arial Unicode MS"]
 rcParams["axes.unicode_minus"] = False
 
 
-# ---------- 依赖模块（ENVI / 转换对话框） ----------
+# ---------- 依赖模块（ENVI 读取） ----------
 try:
     from envi_reader import read_envi
 except Exception:  # 若导入失败，相关功能会在运行时报友好错误
     read_envi = None  # type: ignore
-
-try:
-    from convert_dialog import ConvertDialog
-except Exception:
-    ConvertDialog = None  # type: ignore
 
 
 # ---------- 数据管理器 ----------
@@ -273,12 +268,6 @@ class DataLoadPage(QWidget):
         file_layout.addWidget(btn_load)
 
         layout.addWidget(file_group)
-
-        # 可选：数据格式转换为 ENVI 的入口
-        btn_convert = QPushButton("导出为ENVI格式")
-        btn_convert.setObjectName("secondaryButton")
-        btn_convert.clicked.connect(self.open_convert_dialog)
-        layout.addWidget(btn_convert)
 
         # 状态信息
         info_group = QGroupBox("状态")
@@ -479,28 +468,6 @@ class DataLoadPage(QWidget):
             raise ValueError(f"不支持的数据排列方式：{interleave}")
 
         return arr
-
-    def open_convert_dialog(self) -> None:
-        """打开数据格式转换为 ENVI 的对话框。"""
-        if ConvertDialog is None:
-            QMessageBox.critical(
-                self,
-                "功能不可用",
-                "ConvertDialog 未能导入，请检查 convert_dialog.py 是否存在且无语法错误。",
-            )
-            return
-
-        dlg = ConvertDialog(self)
-
-        def _on_envi_ready(hdr_path: str) -> None:
-            # 转换完成后自动加载 ENVI 文件
-            if not hdr_path:
-                return
-            self.edit_path.setText(hdr_path)
-            self.load_file(hdr_path)
-
-        dlg.envi_ready.connect(_on_envi_ready)
-        dlg.exec_()
 
 
 class _AtmosWorker(QObject):
@@ -876,12 +843,6 @@ class ExportPage(QWidget):
         path_layout.addWidget(btn_browse)
         layout.addWidget(path_group)
 
-        # === 转换工具入口（复用 ConvertDialog） ===
-        btn_convert = QPushButton("导出为ENVI格式")
-        btn_convert.setObjectName("secondaryButton")
-        btn_convert.clicked.connect(self.open_convert_dialog)
-        layout.addWidget(btn_convert)
-
         # === 进度 & 日志 ===
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -1079,19 +1040,6 @@ class ExportPage(QWidget):
                 output_stem, self.current_spectrum, wavelengths_nm=wl
             )
             self._append_log(f"GeoTIFF 光谱曲线导出完成：{tif_path}")
-
-    # ---------- 转换工具入口 ----------
-    def open_convert_dialog(self) -> None:
-        if ConvertDialog is None:
-            QMessageBox.critical(
-                self,
-                "功能不可用",
-                "ConvertDialog 未能导入，请检查 convert_dialog.py 是否存在且无语法错误。",
-            )
-            return
-
-        dlg = ConvertDialog(self)
-        dlg.exec_()
 
 
 # ---------- 页面：可视化 ----------
