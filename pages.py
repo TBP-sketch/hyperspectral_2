@@ -136,6 +136,8 @@ class SingleAxesCanvas(FigureCanvas):
         self.ax = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.setParent(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setStyleSheet("background: transparent;")
 
     def resizeEvent(self, event: Any) -> None:
         """仅在尺寸变化时请求重绘，不再触发布局模式切换。"""
@@ -1102,6 +1104,8 @@ class VisualizationPage(QWidget):
 
     # 超过此边长时对显示用图像做降采样，以减轻卡顿
     _MAX_DISPLAY_SIDE = 1200
+    # 已加载高光谱数据后的画布衬底：浅灰透明（无数据时为完全透明）
+    _VIZ_BG_LOADED = (0.93, 0.93, 0.95, 0.88)
 
     def __init__(self, data_manager: DataManager, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -1191,20 +1195,9 @@ class VisualizationPage(QWidget):
 
         layout.addLayout(canvas_layout, 0, 0, 4, 1)
 
-        # 画布子图初始化与占位
-        self.canvas_spec.ax.set_xlabel("波段索引")
-        self.canvas_spec.ax.set_ylabel("反射率 / DN")
-        self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
-        self.canvas_img.ax.axis("off")
-        self.canvas_img.ax.text(
-            0.5, 0.5, "未加载图像数据",
-            transform=self.canvas_img.ax.transAxes, ha="center", va="center", fontsize=12,
-        )
-        self.canvas_spec.ax.text(
-            0.5, 0.5,
-            "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
-            transform=self.canvas_spec.ax.transAxes, ha="center", va="center", fontsize=10,
-        )
+        # 画布：无数据时透明底 + 白字占位；有数据后由 on_data_changed 切换为浅灰透明底
+        self._viz_draw_image_placeholder_no_data()
+        self._viz_draw_spectrum_placeholder_no_data()
 
         # ---------- 右侧控件 ----------
         controls = QVBoxLayout()
@@ -1265,6 +1258,95 @@ class VisualizationPage(QWidget):
         self._pan_start: Optional[tuple[float, float]] = None
         self._panning: bool = False
 
+    def _ensure_viz_canvas_style(self) -> None:
+        """根据是否已加载数据，设置两个 Figure 的底色（无数据透明 / 有数据浅灰透明）。"""
+        has_data = self.data is not None
+        for canvas in (self.canvas_img, self.canvas_spec):
+            fig = canvas.figure
+            if has_data:
+                fig.patch.set_facecolor(self._VIZ_BG_LOADED)
+                fig.patch.set_alpha(1.0)
+            else:
+                fig.patch.set_facecolor("none")
+                fig.patch.set_alpha(0.0)
+            for ax in fig.get_axes():
+                if has_data:
+                    ax.set_facecolor(self._VIZ_BG_LOADED)
+                else:
+                    ax.set_facecolor("none")
+                    ax.patch.set_alpha(0.0)
+
+    def _viz_draw_image_placeholder_no_data(self) -> None:
+        """左侧图像：无数据占位，透明底 + 白字。"""
+        ax = self.canvas_img.ax
+        ax.clear()
+        ax.axis("off")
+        ax.text(
+            0.5,
+            0.5,
+            "未加载图像数据",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=12,
+            color="white",
+        )
+        self._ensure_viz_canvas_style()
+        self.canvas_img.draw_idle()
+
+    def _viz_draw_spectrum_placeholder_no_data(self) -> None:
+        """右侧光谱：无高光谱数据时，透明底 + 白字与浅色坐标。"""
+        ax = self.canvas_spec.ax
+        ax.clear()
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel("波段索引", color="white")
+        ax.set_ylabel("反射率 / DN", color="white")
+        ax.yaxis.set_label_coords(-0.10, 0.10)
+        ax.tick_params(axis="both", colors="white", labelcolor="white")
+        for s in ax.spines.values():
+            s.set_color("white")
+            s.set_alpha(0.65)
+        ax.grid(False)
+        ax.text(
+            0.5,
+            0.5,
+            "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="white",
+        )
+        self._ensure_viz_canvas_style()
+        self.canvas_spec.draw_idle()
+
+    def _viz_draw_spectrum_placeholder_data_loaded_hint(self) -> None:
+        """已加载数据但尚未点击/已清除曲线：浅灰底 + 深色提示文字。"""
+        ax = self.canvas_spec.ax
+        ax.clear()
+        self._ensure_viz_canvas_style()
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.set_xlabel("波段索引", color="#0F172A")
+        ax.set_ylabel("反射率 / DN", color="#0F172A")
+        ax.yaxis.set_label_coords(-0.10, 0.10)
+        ax.tick_params(axis="both", colors="#334155", labelcolor="#334155")
+        for s in ax.spines.values():
+            s.set_color("#94A3B8")
+        ax.grid(False)
+        ax.text(
+            0.5,
+            0.5,
+            "请点击左侧图像中的像素\n以查看该位置的光谱曲线",
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+            color="#0F172A",
+        )
+        self.canvas_spec.draw_idle()
+
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         """平移模式下在画布上显示移动光标。"""
         if event.type() == QEvent.Enter and obj in (self.canvas_img, self.canvas_spec):
@@ -1277,13 +1359,7 @@ class VisualizationPage(QWidget):
     def _on_toolbar_pan_toggled(self, checked: bool) -> None:
         """工具栏「平移」按钮切换时，启用/禁用左键拖动模式，并更新按钮样式与画布光标。"""
         self._pan_mode_enabled = bool(checked)
-        if self._pan_tool_btn is not None:
-            if checked:
-                self._pan_tool_btn.setStyleSheet(
-                    "QToolButton:checked { background-color: #1ABC9C; border-radius: 4px; }"
-                )
-            else:
-                self._pan_tool_btn.setStyleSheet("")
+        # 选中态样式由 QSS（QToolButton:checked）统一绘制
         for c in (self.canvas_img, self.canvas_spec):
             if checked and c.underMouse():
                 c.setCursor(Qt.SizeAllCursor)
@@ -1293,16 +1369,11 @@ class VisualizationPage(QWidget):
     # ---------- 工具栏动作 ----------
     def _clear_spectrum_curve(self) -> None:
         """清除光谱子图，恢复占位提示。"""
-        self.canvas_spec.ax.cla()
-        self.canvas_spec.ax.set_xlabel("波段索引")
-        self.canvas_spec.ax.set_ylabel("反射率 / DN")
-        self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
-        self.canvas_spec.ax.text(
-            0.5, 0.5, "未加载光谱\n请先在“数据读取”模块中加载数据，\n再在左侧图像中点击像素。",
-            transform=self.canvas_spec.ax.transAxes, ha="center", va="center", fontsize=10,
-        )
+        if self.data is None:
+            self._viz_draw_spectrum_placeholder_no_data()
+        else:
+            self._viz_draw_spectrum_placeholder_data_loaded_hint()
         self.canvas_img.draw_idle()
-        self.canvas_spec.draw_idle()
         self._last_spectrum_row = None
         self._last_spectrum_col = None
 
@@ -1458,11 +1529,14 @@ class VisualizationPage(QWidget):
                 except Exception:
                     pass
                 self.cbar = None
+        self._ensure_viz_canvas_style()
         self.img_artist = self.canvas_img.ax.imshow(
             rgb, origin="upper", interpolation="bilinear"
         )
         self.canvas_img.ax.axis("off")
-        self.canvas_img.ax.set_title(f"假彩色 (R,G,B)=({r_idx},{g_idx},{b_idx})")
+        self.canvas_img.ax.set_title(
+            f"假彩色 (R,G,B)=({r_idx},{g_idx},{b_idx})", color="#0F172A"
+        )
         self.canvas_img.draw_idle()
         self.canvas_spec.draw_idle()
 
@@ -1498,6 +1572,7 @@ class VisualizationPage(QWidget):
         self.data = arr
         h, w, b = arr.shape
         self.info_label.setText(f"数据已加载：形状 (H, W, B) = ({h}, {w}, {b})")
+        self._ensure_viz_canvas_style()
 
         if not same_shape:
             # 视为新数据：重新构建波段列表与假彩色下拉框，重置到单波段第 0 波段
@@ -1542,7 +1617,7 @@ class VisualizationPage(QWidget):
         # 根据当前显示模式刷新图像
         self.update_image()
 
-        # 若之前选中过像素，则在新数据上同步更新光谱曲线
+        # 若之前选中过像素，则在新数据上同步更新光谱曲线；否则显示「已加载请点击」占位
         if (
             self._last_spectrum_row is not None
             and self._last_spectrum_col is not None
@@ -1550,6 +1625,8 @@ class VisualizationPage(QWidget):
             and 0 <= self._last_spectrum_col < w
         ):
             self.update_spectrum(self._last_spectrum_row, self._last_spectrum_col)
+        else:
+            self._viz_draw_spectrum_placeholder_data_loaded_hint()
 
         # 首次或新数据加载后，稍作延时以确保布局稳定
         QTimer.singleShot(50, self._deferred_layout)
@@ -1594,6 +1671,7 @@ class VisualizationPage(QWidget):
                     pass
                 self.cbar = None
             self.canvas_img.ax.cla()
+            self._ensure_viz_canvas_style()
             self.img_artist = self.canvas_img.ax.imshow(
                 img_clip, cmap="gray", origin="upper", vmin=v_min, vmax=v_max,
                 interpolation="bilinear",
@@ -1610,7 +1688,7 @@ class VisualizationPage(QWidget):
             if self.cbar is not None:
                 self.cbar.update_normal(self.img_artist)
 
-        self.canvas_img.ax.set_title(f"波段 {self.current_band}")
+        self.canvas_img.ax.set_title(f"波段 {self.current_band}", color="#0F172A")
         self.canvas_img.draw()
 
     def update_spectrum(self, row: int, col: int) -> None:
@@ -1627,6 +1705,7 @@ class VisualizationPage(QWidget):
         margin = (v_max - v_min) * 0.05 or 1e-6
 
         self.canvas_spec.ax.cla()
+        self._ensure_viz_canvas_style()
         x = np.arange(b, dtype=float)
         if b >= 2:
             # 波长/波段索引着色：短波蓝 -> 长波红（coolwarm）
@@ -1650,10 +1729,22 @@ class VisualizationPage(QWidget):
         self.canvas_spec.ax.yaxis.set_label_coords(-0.10, 0.10)
         self.canvas_spec.ax.set_title(f"光谱 ({row}, {col})")
         self.canvas_spec.ax.text(
-            0.02, 0.98, f"min={v_min:.4f} max={v_max:.4f}",
-            transform=self.canvas_spec.ax.transAxes, ha="left", va="top", fontsize=8,
+            0.02,
+            0.98,
+            f"min={v_min:.4f} max={v_max:.4f}",
+            transform=self.canvas_spec.ax.transAxes,
+            ha="left",
+            va="top",
+            fontsize=8,
+            color="#0F172A",
         )
         self.canvas_spec.ax.grid(True, linestyle="--", alpha=0.5)
+        self.canvas_spec.ax.tick_params(axis="both", colors="#1E293B", labelcolor="#1E293B")
+        for s in self.canvas_spec.ax.spines.values():
+            s.set_color("#64748B")
+        self.canvas_spec.ax.xaxis.label.set_color("#0F172A")
+        self.canvas_spec.ax.yaxis.label.set_color("#0F172A")
+        self.canvas_spec.ax.title.set_color("#0F172A")
         # 减少刻度数量，避免 224 波段时 Y 轴标签重叠
         self.canvas_spec.ax.xaxis.set_major_locator(MaxNLocator(nbins=min(12, max(b, 2)), integer=True))
         self.canvas_spec.ax.yaxis.set_major_locator(MaxNLocator(nbins=8, prune="both"))

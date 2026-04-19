@@ -74,7 +74,20 @@ QToolButton:hover {
 }
 
 QToolButton:pressed {
-    background-color: #505052;
+    background-color: #252526;
+}
+
+/* 与左侧导航「选中项」一致：深底 + 白边框 */
+QToolButton:checked {
+    background-color: rgba(44, 62, 80, 0.88);
+    border: 1px solid #FFFFFF;
+    border-radius: 4px;
+    color: #FFFFFF;
+}
+
+QToolButton:checked:hover {
+    background-color: rgba(52, 73, 94, 0.92);
+    border: 1px solid #FFFFFF;
 }
 
 /* ----- 左侧导航 ----- */
@@ -109,19 +122,25 @@ QListWidget#navList::item:hover {
 QListWidget#navList::item:selected {
     background-color: rgba(44, 62, 80, 0.92);
     color: #FFFFFF;
-    border-left: 4px solid #1ABC9C;
+    border-left: 4px solid #FFFFFF;
 }
 
 QListWidget#navList::item:selected:hover {
     background-color: rgba(52, 73, 94, 0.94);
     color: #FFFFFF;
+    border-left: 4px solid #FFFFFF;
 }
 
-/* ----- 次要按钮 ----- */
+QListWidget#navList::item:pressed {
+    background-color: rgba(71, 85, 105, 0.85);
+    color: #FFFFFF;
+}
+
+/* ----- 次要按钮：交互节奏与左侧导航项一致 ----- */
 QPushButton {
-    background-color: rgba(62, 62, 66, 0.82);
-    color: #E0E0E0;
-    border: 1px solid rgba(85, 85, 85, 0.9);
+    background-color: rgba(0, 0, 0, 0.22);
+    color: #E8E8E8;
+    border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 6px;
     padding: 8px 16px;
     font-weight: normal;
@@ -129,12 +148,16 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background-color: rgba(78, 78, 82, 0.88);
-    border-color: #666666;
+    background-color: rgba(62, 62, 66, 0.72);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #FFFFFF;
 }
 
 QPushButton:pressed {
-    background-color: rgba(53, 53, 56, 0.92);
+    background-color: rgba(71, 85, 105, 0.85);
+    border-color: rgba(255, 255, 255, 0.55);
+    padding-top: 9px;
+    padding-bottom: 7px;
 }
 
 QPushButton:disabled {
@@ -143,11 +166,11 @@ QPushButton:disabled {
     border-color: #444444;
 }
 
-/* ----- 主要按钮 ----- */
+/* ----- 主要按钮：绿色填充 + 白色描边 ----- */
 QPushButton#primaryButton {
     background-color: #27AE60;
     color: #FFFFFF;
-    border: none;
+    border: 1px solid #FFFFFF;
     border-radius: 6px;
     padding: 8px 16px;
     font-weight: bold;
@@ -155,10 +178,14 @@ QPushButton#primaryButton {
 
 QPushButton#primaryButton:hover {
     background-color: #2ECC71;
+    border: 1px solid #FFFFFF;
 }
 
 QPushButton#primaryButton:pressed {
-    background-color: #219A52;
+    background-color: #1E8449;
+    border: 1px solid #FFFFFF;
+    padding-top: 9px;
+    padding-bottom: 7px;
 }
 
 QPushButton#primaryButton:disabled {
@@ -167,16 +194,23 @@ QPushButton#primaryButton:disabled {
 }
 
 QPushButton#secondaryButton {
-    background-color: rgba(62, 62, 66, 0.82);
-    color: #E0E0E0;
-    border: 1px solid rgba(85, 85, 85, 0.9);
+    background-color: rgba(0, 0, 0, 0.22);
+    color: #E8E8E8;
+    border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 6px;
     padding: 8px 16px;
     font-weight: normal;
 }
 
 QPushButton#secondaryButton:hover {
-    background-color: rgba(78, 78, 82, 0.88);
+    background-color: rgba(62, 62, 66, 0.72);
+    border-color: rgba(255, 255, 255, 0.45);
+    color: #FFFFFF;
+}
+
+QPushButton#secondaryButton:pressed {
+    background-color: rgba(71, 85, 105, 0.85);
+    border-color: rgba(255, 255, 255, 0.55);
 }
 
 /* ----- 分组框 ----- */
@@ -220,7 +254,7 @@ QLineEdit:focus,
 QComboBox:focus,
 QSpinBox:focus,
 QDoubleSpinBox:focus {
-    border: 2px solid #1ABC9C;
+    border: 2px solid #64748B;
 }
 
 QComboBox::drop-down {
@@ -262,8 +296,8 @@ QSlider::groove:horizontal {
 }
 
 QSlider::handle:horizontal {
-    background: #1ABC9C;
-    border: 1px solid #16A085;
+    background: #475569;
+    border: 1px solid #FFFFFF;
     width: 16px;
     height: 16px;
     margin: -6px 0;
@@ -271,7 +305,8 @@ QSlider::handle:horizontal {
 }
 
 QSlider::handle:horizontal:hover {
-    background: #48C9B0;
+    background: #64748B;
+    border: 1px solid #FFFFFF;
 }
 
 /* ----- 进度条 ----- */
@@ -302,7 +337,7 @@ QTextBrowser {
 
 QTextEdit:focus,
 QPlainTextEdit:focus {
-    border: 2px solid #1ABC9C;
+    border: 2px solid #64748B;
 }
 
 QSplitter::handle {
@@ -445,14 +480,22 @@ QWidget#modulePage QSlider::groove:horizontal {
 }
 
 QWidget#modulePage QPushButton {
-    background-color: rgba(30, 41, 59, 0.92);
+    background-color: rgba(30, 41, 59, 0.75);
     color: #FFFFFF;
-    border: 1px solid #CBD5E1;
+    border: 1px solid rgba(255, 255, 255, 0.35);
 }
 
 QWidget#modulePage QPushButton:hover {
-    background-color: rgba(51, 65, 85, 0.96);
-    border-color: #E2E8F0;
+    background-color: rgba(51, 65, 85, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    color: #FFFFFF;
+}
+
+QWidget#modulePage QPushButton:pressed {
+    background-color: rgba(15, 23, 42, 0.95);
+    border: 1px solid #FFFFFF;
+    padding-top: 9px;
+    padding-bottom: 7px;
 }
 
 QWidget#modulePage QPushButton:disabled {
@@ -463,26 +506,63 @@ QWidget#modulePage QPushButton:disabled {
 QWidget#modulePage QPushButton#primaryButton {
     background-color: #27AE60;
     color: #FFFFFF;
-    border: 1px solid #1D8348;
+    border: 1px solid #FFFFFF;
 }
 
 QWidget#modulePage QPushButton#primaryButton:hover {
     background-color: #2ECC71;
+    color: #FFFFFF;
+    border: 1px solid #FFFFFF;
+}
+
+QWidget#modulePage QPushButton#primaryButton:pressed {
+    background-color: #1E8449;
+    border: 1px solid #FFFFFF;
+    padding-top: 9px;
+    padding-bottom: 7px;
 }
 
 QWidget#modulePage QPushButton#secondaryButton {
     background-color: rgba(30, 41, 59, 0.92);
     color: #FFFFFF;
-    border: 1px solid #CBD5E1;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+QWidget#modulePage QPushButton#secondaryButton:hover {
+    background-color: rgba(51, 65, 85, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    color: #FFFFFF;
+}
+
+QWidget#modulePage QPushButton#secondaryButton:pressed {
+    background-color: rgba(15, 23, 42, 0.95);
+    border: 1px solid #FFFFFF;
 }
 
 QWidget#modulePage QToolButton {
     color: #FFFFFF;
-    background-color: rgba(30, 41, 59, 0.78);
+    background-color: rgba(30, 41, 59, 0.75);
+    border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 4px;
 }
 
 QWidget#modulePage QToolButton:hover {
-    background-color: rgba(51, 65, 85, 0.92);
+    background-color: rgba(51, 65, 85, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.45);
     color: #FFFFFF;
+}
+
+QWidget#modulePage QToolButton:pressed {
+    background-color: rgba(15, 23, 42, 0.95);
+    border: 1px solid #FFFFFF;
+}
+
+QWidget#modulePage QToolButton:checked {
+    background-color: rgba(44, 62, 80, 0.88);
+    border: 1px solid #FFFFFF;
+}
+
+QWidget#modulePage QToolButton:checked:hover {
+    background-color: rgba(52, 73, 94, 0.92);
+    border: 1px solid #FFFFFF;
 }
