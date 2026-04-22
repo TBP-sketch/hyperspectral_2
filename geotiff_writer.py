@@ -49,7 +49,7 @@ def write_geotiff_cube(
         from rasterio.transform import from_origin
     except ImportError as e:  # pragma: no cover
         raise ImportError(
-            "写出 GeoTIFF 需要安装 rasterio，请执行：pip install rasterio"
+            f"GeoTIFF 运行时依赖加载失败（rasterio/GDAL）。原始错误：{e}"
         ) from e
 
     arr = np.asarray(cube)
@@ -111,7 +111,7 @@ def write_geotiff_spectrum(
         from rasterio.transform import from_origin
     except ImportError as e:  # pragma: no cover
         raise ImportError(
-            "写出 GeoTIFF 需要安装 rasterio，请执行：pip install rasterio"
+            f"GeoTIFF 运行时依赖加载失败（rasterio/GDAL）。原始错误：{e}"
         ) from e
 
     y = np.asarray(spectrum, dtype=float).reshape(-1)

@@ -22,7 +22,7 @@ import sys
 from typing import Optional
 
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QKeySequence, QPainter, QPixmap
+from PyQt5.QtGui import QIcon, QKeySequence, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -74,6 +74,18 @@ class MainWindow(QMainWindow):
 
         # 帮助窗口单例（可复用）
         self._help_window: Optional[QWidget] = None
+
+        self._apply_window_icon()
+
+    def _apply_window_icon(self) -> None:
+        """设置主窗口图标（兼容源码运行与 PyInstaller 打包）。"""
+        if hasattr(sys, "_MEIPASS"):
+            base = getattr(sys, "_MEIPASS")
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base, "assets", "app_logo.png")
+        if os.path.isfile(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
     # ---------- 中心区域：左侧导航 + 右侧工作区 ----------
     def _init_central_widgets(self) -> None:

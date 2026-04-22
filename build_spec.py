@@ -5,13 +5,18 @@
 # 或单目录模式便于调试：
 #   pyinstaller --onedir build_spec.py
 # 说明：使用 .py 扩展名可避免编辑器将 .spec 误识别为 RPM 规格文件。
+from PyInstaller.utils.hooks import collect_all
 
 # 资源文件：样式表（运行 pyinstaller 时请在项目根目录执行）
 datas = [
     ('style.qss', '.'),
     ('style_dark.qss', '.'),
     ('assets/hyspec_background.png', 'assets'),
+    ('assets/app_logo.png', 'assets'),
 ]
+# 收集 rasterio 的动态库与数据文件（含 GDAL/PROJ 运行时资源）
+rasterio_datas, rasterio_binaries, rasterio_hiddenimports = collect_all('rasterio')
+datas += rasterio_datas
 # 若有 icons 目录：datas.append(('icons', 'icons'))
 
 # 隐藏导入：数据读取与预处理可能用到的库
@@ -24,15 +29,17 @@ hiddenimports = [
     'PyQt5.QtWidgets',
     'spectral',           # ENVI 等格式
     'h5py',               # HDF5
+    'scipy',              # .mat 读取
     'cv2',                # 部分预处理可能用到（若未用可删）
 ]
+hiddenimports += rasterio_hiddenimports
 # 若使用 py6s 做大气校正，取消下一行注释：
 # hiddenimports.append('Py6S')
 
 a = Analysis(
     ['main_window.py'],   # 入口：四模块主窗口
     pathex=[],
-    binaries=[],
+    binaries=rasterio_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],

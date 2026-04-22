@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from typing import Optional
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QPainter, QPainterPath, QPixmap
 from PyQt5.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -20,10 +22,37 @@ from PyQt5.QtWidgets import (
 )
 
 # 软件信息常量，便于统一修改
-APP_NAME = "高光谱数据处理平台"
+APP_NAME = "光谱视界"
 APP_VERSION = "v1.0"
-APP_AUTHOR = "参赛团队"
+APP_AUTHOR = "吴湛博，罗晶晶"
 TECH_STACK = "Python, PyQt5, Matplotlib, NumPy, SciPy, Spectral, h5py, rasterio"
+
+
+def _resolve_logo_path() -> str:
+    """返回 logo 资源路径（兼容源码运行与 PyInstaller 打包）。"""
+    if hasattr(sys, "_MEIPASS"):
+        base = getattr(sys, "_MEIPASS")
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, "assets", "app_logo.png")
+
+
+def _build_circular_logo(src: QPixmap, size: int) -> QPixmap:
+    """将任意矩形 logo 裁剪为圆形显示（居中截取）。"""
+    square = src.scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+    out = QPixmap(size, size)
+    out.fill(Qt.transparent)
+
+    painter = QPainter(out)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    path = QPainterPath()
+    path.addEllipse(0, 0, size, size)
+    painter.setClipPath(path)
+    x = (size - square.width()) // 2
+    y = (size - square.height()) // 2
+    painter.drawPixmap(x, y, square)
+    painter.end()
+    return out
 
 
 class AboutDialog(QDialog):
@@ -40,14 +69,18 @@ class AboutDialog(QDialog):
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
 
-        # Logo 占位符（可用图片路径或占位文字）
+        # Logo（优先显示 assets/app_logo.png）
         logo_label = QLabel()
-        logo_label.setFixedSize(80, 80)
+        logo_label.setFixedSize(120, 120)
         logo_label.setAlignment(Qt.AlignCenter)
-        logo_label.setStyleSheet(
-            "background-color: #4CAF50; border-radius: 8px; color: white; font-size: 10pt;"
-        )
-        logo_label.setText("HSI\nLogo")
+        pix = QPixmap(_resolve_logo_path())
+        if not pix.isNull():
+            logo_label.setPixmap(_build_circular_logo(pix, logo_label.width()))
+        else:
+            logo_label.setStyleSheet(
+                "background-color: #475569; border-radius: 60px; color: white; font-size: 10pt;"
+            )
+            logo_label.setText("Logo")
         logo_label.setScaledContents(False)
         layout.addWidget(logo_label, alignment=Qt.AlignCenter)
 
